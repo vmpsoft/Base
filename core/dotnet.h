@@ -5,6 +5,8 @@
 
 namespace net
 {
+	std::string symbol_name(const std::string &ret, const std::string &type, const std::string &method, const std::string &signature);
+
 #pragma pack(push, 1)
 	class format
 	{
@@ -103,13 +105,54 @@ namespace net
 			uint16_t         flags;
 		};
 
+		enum element_type_id : uint8_t
+		{
+			end = 0x0,
+			_void = 0x1,
+			boolean = 0x2,
+			_char = 0x3,
+			i1 = 0x4,
+			u1 = 0x5,
+			i2 = 0x6,
+			u2 = 0x7,
+			i4 = 0x8,
+			u4 = 0x9,
+			i8 = 0xa,
+			u8 = 0xb,
+			r4 = 0xc,
+			r8 = 0xd,
+			string = 0xe,
+			ptr = 0xf,
+			byref = 0x10,
+			valuetype = 0x11,
+			_class = 0x12,
+			var = 0x13,
+			array = 0x14,
+			genericinst = 0x15,
+			typedbyref= 0x16,
+			i = 0x18,
+			u = 0x19,
+			fnptr = 0x1B,
+			object = 0x1C,
+			szarray = 0x1D,
+			mvar = 0x1E,
+			cmod_reqd = 0x1f,
+			cmod_opt = 0x20,
+			internal = 0x21,
+			modifier = 0x40,
+			sentinel = 0x01 | modifier,
+			pinned = 0x05 | modifier,
+			type = 0x50,
+			tagged_object = 0x51,
+			_enum = 0x55
+		};
 	};
 #pragma pack(pop)
 
 	class storage : public base::storage
 	{
 	public:
-		storage() : base::storage() {}
+		storage() = default;
 		storage(const uint8_t *data, size_t size);
 	};
 
@@ -121,15 +164,15 @@ namespace net
 		std::string read_string();
 		size_t tell() const { return position_; }
 		void seek(size_t position) { position_ = position; }
+		template<typename T> T read() { T res{}; read(&res, sizeof(res)); return res; }
 	private:
 		void read(void *buffer, size_t size);
-		template<typename T> T read() { T res{}; read(&res, sizeof(res)); return res; }
 		const uint8_t *data_;
 		size_t size_;
 		size_t position_;
 	};
 
-	enum class token_type_id : uint8_t
+	enum class token_type_id : uint32_t
 	{
 		module = 0x00,
 		type_ref = 0x01,
@@ -170,7 +213,8 @@ namespace net
 		nested_class = 0x29,
 		generic_param = 0x2a,
 		method_spec = 0x2b,
-		generic_param_constraint = 0x2c
+		generic_param_constraint = 0x2c,
+		invalid = 0xff
 	};
 
 	class architecture;
@@ -185,48 +229,66 @@ namespace net
 			uint32_t value : 24;
 			token_type_id type : 8;
 		};
-
 		token_value_t() = default;
 		token_value_t(token_type_id type_, uint32_t value_) : type(type_), value(value_) {}
 	};
 
 	struct token_encoding_t
 	{
-		token_type_id types[20];
+		token_type_id types[22];
 		uint8_t size;
 		uint8_t bits;
+
+		template<typename... Args>
+		static constexpr token_encoding_t construct(uint8_t bits, Args... args) {
+			return { {args...}, sizeof...(Args), bits };
+		}
 	};
 
-	static constexpr token_encoding_t resolution_scope_encoding = { {token_type_id::module, token_type_id::module_ref, token_type_id::assembly_ref, token_type_id::type_ref}, 4, 2 };
-	static constexpr token_encoding_t type_def_ref_encoding = { {token_type_id::type_def, token_type_id::type_ref, token_type_id::type_spec}, 3, 2 };
+	static constexpr token_encoding_t resolution_scope_encoding = token_encoding_t::construct(2,
+		token_type_id::module, token_type_id::module_ref, token_type_id::assembly_ref, token_type_id::type_ref);
 
-	/*
+	static constexpr token_encoding_t type_def_ref_encoding = token_encoding_t::construct(2,
+		token_type_id::type_def, token_type_id::type_ref, token_type_id::type_spec);
 
-	const EncodingDesc TypeDefRef = EncodingDesc(typedef_ref_types, _countof(typedef_ref_types), 2);
-	const EncodingDesc TypeMethodDef = EncodingDesc(type_or_methoddef_types, _countof(type_or_methoddef_types), 1);
-	const EncodingDesc HasSemantics = EncodingDesc(has_semantics_types, _countof(has_semantics_types), 1);
-	const EncodingDesc MethodDefRef = EncodingDesc(methoddef_ref_types, _countof(methoddef_ref_types), 1);
-	const EncodingDesc MemberForwarded = EncodingDesc(member_forwarded_types, _countof(member_forwarded_types), 1);
-	const EncodingDesc HasFieldMarshal = EncodingDesc(has_field_marshal_types, _countof(has_field_marshal_types), 1);
-	const EncodingDesc Implementation = EncodingDesc(implementation_types, _countof(implementation_types), 2);
-	const EncodingDesc MemberRefParent = EncodingDesc(member_ref_parent_types, _countof(member_ref_parent_types), 3);
-	const EncodingDesc HasConstant = EncodingDesc(has_constant_types, _countof(has_constant_types), 2);
-	const EncodingDesc CustomAttribute = EncodingDesc(custom_attribute_types, _countof(custom_attribute_types), 3);
-	const EncodingDesc HasCustomAttribute = EncodingDesc(has_custom_attribute_types, _countof(has_custom_attribute_types), 5);
-	const EncodingDesc HasDeclSecurity = EncodingDesc(has_decl_security_types, _countof(has_decl_security_types), 2);
+	static constexpr token_encoding_t member_ref_parent_encoding = token_encoding_t::construct(3,
+		token_type_id::type_def, token_type_id::type_ref, token_type_id::module_ref, token_type_id::method_def, token_type_id::type_spec);
 
-	*/
+	static constexpr token_encoding_t has_constant_encoding = token_encoding_t::construct(2,
+		token_type_id::field, token_type_id::param, token_type_id::property);
 
+	static constexpr token_encoding_t has_custom_attribute_encoding = token_encoding_t::construct(5,
+		token_type_id::method_def, token_type_id::field, token_type_id::type_ref, token_type_id::type_def, token_type_id::param, token_type_id::interface_impl, token_type_id::member_ref,
+		token_type_id::module, token_type_id::decl_security, token_type_id::property, token_type_id::event, token_type_id::stand_alone_sig, token_type_id::module_ref, token_type_id::type_spec,
+		token_type_id::assembly, token_type_id::assembly_ref, token_type_id::file, token_type_id::exported_type, token_type_id::manifest_resource, token_type_id::generic_param,
+		token_type_id::generic_param_constraint, token_type_id::method_spec);
 
+	static constexpr token_encoding_t custom_attribute_encoding = token_encoding_t::construct(3,
+		token_type_id::invalid, token_type_id::invalid, token_type_id::method_def, token_type_id::member_ref);
 
+	static constexpr token_encoding_t has_field_marshal_encoding = token_encoding_t::construct(1,
+		token_type_id::field, token_type_id::param);
+
+	static constexpr token_encoding_t has_decl_security_encoding = token_encoding_t::construct(2,
+		token_type_id::type_def, token_type_id::method_def, token_type_id::assembly);
+
+	static constexpr token_encoding_t has_semantics_encoding = token_encoding_t::construct(1,
+		token_type_id::event, token_type_id::property);
+
+	static constexpr token_encoding_t method_def_ref_encoding = token_encoding_t::construct(1,
+		token_type_id::method_def, token_type_id::member_ref);
+
+	static constexpr token_encoding_t member_forwarded_encoding = token_encoding_t::construct(1,
+		token_type_id::field, token_type_id::method_def);
 
 	class token
 	{
 	public:
-		token(meta_data *owner, token_value_t id);
+		token(meta_data *owner, token_value_t value);
 		virtual void load(architecture &file) {}
+		uint32_t id() const { return value_.id; }
+		token_type_id type() const { return value_.type; }
 	protected:
-		token_value_t id() const { return id_; }
 		std::string read_string(architecture &file) const;
 		std::string read_user_string(uint32_t value) const;
 		storage read_blob(architecture &file) const;
@@ -235,7 +297,7 @@ namespace net
 		token *read_token(architecture &file, token_type_id type) const;
 	private:
 		meta_data *meta_;
-		token_value_t id_;
+		token_value_t value_;
 	};
 
 	class module : public token
@@ -256,6 +318,9 @@ namespace net
 	public:
 		using token::token;
 		virtual void load(architecture &file);
+		type_ref *declaring_type() const;
+		std::string full_name() const;
+		token *resolution_scope() const { return resolution_scope_; }
 	private:
 		token *resolution_scope_;
 		std::string name_;
@@ -265,12 +330,17 @@ namespace net
 	class field;
 	class method_def;
 	class param;
+	class event;
+	class property;
+	class signature;
 
 	class type_def : public token
 	{
 	public:
 		using token::token;
 		virtual void load(architecture &file);
+		std::string full_name() const;
+		std::string name() const { return name_; }
 	private:
 		format::type_attributes_t flags_;
 		std::string name_;
@@ -282,31 +352,108 @@ namespace net
 		uint32_t class_size_;
 	};
 
-	class signature
+	class element
 	{
 	public:
-		void load(const storage &storage) {}
+		element(meta_data *owner) : owner_(owner) {}
+		void load(storage_view &data);
+		std::string name() const;
+	private:
+		void read_type(storage_view &data);
+
+		meta_data *owner_;
+		format::element_type_id type_;
+		bool byref_;
+		bool pinned_;
+		bool sentinel_;
+		uint32_t generic_param_;
+		std::unique_ptr<element> next_;
+		token *token_;
+		std::unique_ptr<signature> method_;
+		base::list<element> mod_list_;
+		base::list<element> child_list_;
+	};
+
+	enum class signature_type_id : uint8_t
+	{
+		def,
+		c_call,
+		std_call,
+		this_call,
+		fast_call,
+		var_arg,
+		field,
+		local,
+		property,
+		unmanaged,
+		generic_inst,
+		native_var_arg,
+	};
+
+	union signature_type_t
+	{
+		uint8_t value;
+		struct {
+			signature_type_id type : 4;
+			uint8_t           generic : 1;
+			uint8_t           has_this : 1;
+			uint8_t           explicit_this : 1;
+			uint8_t           reserved : 1;
+		};
+
+		bool is_method() const
+		{
+			switch (type) {
+			case signature_type_id::def:
+			case signature_type_id::c_call:
+			case signature_type_id::std_call:
+			case signature_type_id::this_call:
+			case signature_type_id::fast_call:
+			case signature_type_id::var_arg:
+			case signature_type_id::unmanaged:
+			case signature_type_id::native_var_arg:
+				return true;
+			}
+			return false;
+		}
+	};
+
+	class signature: public base::list<element>
+	{
+	public:
+		signature(meta_data *owner);
+		void load(const storage &storage);
+		void load(storage_view &storage);
+		std::string ret_name() const;
+		std::string name() const;
+		signature_type_t type() const { return type_; };
+	private:
+		meta_data *owner_;
+		signature_type_t type_;
+		uint32_t gen_param_count_;
+		std::unique_ptr<element> ret_;
 	};
 
 	class field : public token
 	{
 	public:
-		using token::token;
+		field(meta_data *owner, token_value_t value);
 		virtual void load(architecture &file);
 	private:
 		format::field_attributes_t flags_;
 		std::string name_;
-		std::unique_ptr<signature> signature_ = std::make_unique<signature>();
+		std::unique_ptr<signature> signature_;
 		type_def *declaring_type_;
 	};
 
 	class method_def : public token
 	{
 	public:
-		using token::token;
+		method_def(meta_data *owner, token_value_t value);
 		virtual void load(architecture &file);
+		type_def *declaring_type() const { return declaring_type_; }
 	private:
-		std::unique_ptr<signature> signature_ = std::make_unique<signature>();
+		std::unique_ptr<signature> signature_;
 		uint64_t address_;
 		format::method_impl_t impl_;
 		format::method_attributes_t flags_;
@@ -318,246 +465,359 @@ namespace net
 	class param : public token
 	{
 	public:
-		param(table *owner, token_value_t value);
-		virtual void load(architecture &file) {}
+		using token::token;
+		virtual void load(architecture &file);
+	private:
+		uint16_t flags_;
+		uint16_t sequence_;
+		std::string name_;
 	};
 
 	class interface_impl : public token
 	{
 	public:
-		interface_impl(table *owner, token_value_t value);
-		virtual void load(architecture &file) {}
+		using token::token;
+		virtual void load(architecture &file);
+	private:
+		type_def *class_;
+		token *interface_;
 	};
 
 	class member_ref : public token
 	{
 	public:
-		member_ref(table *owner, token_value_t value);
-		virtual void load(architecture &file) {}
+		member_ref(meta_data *owner, token_value_t value);
+		virtual void load(architecture &file);
+		std::string full_name() const;
+		token *declaring_type() const { return declaring_type_; }
+	private:
+		std::unique_ptr<signature> signature_;
+		token *declaring_type_;
+		std::string name_;
 	};
 
 	class constant : public token
 	{
 	public:
-		constant(table *owner, token_value_t value);
-		virtual void load(architecture &file) {}
+		using token::token;
+		virtual void load(architecture &file);
+	private:
+		uint8_t type_;
+		uint8_t padding_zero_;
+		token *parent_;
+		storage value_;
 	};
 
 	class custom_attribute : public token
 	{
 	public:
-		custom_attribute(table *owner, token_value_t value);
-		virtual void load(architecture &file) {}
+		using token::token;
+		virtual void load(architecture &file);
+	private:
+		token *parent_;
+		token *type_;
+		storage value_;
 	};
 
 	class field_marshal : public token
 	{
 	public:
-		field_marshal(table *owner, token_value_t value);
-		virtual void load(architecture &file) {}
+		using token::token;
+		virtual void load(architecture &file);
+	private:
+		token *parent_;
+		storage native_type_;
 	};
 
 	class decl_security : public token
 	{
 	public:
-		decl_security(table *owner, token_value_t value);
-		virtual void load(architecture &file) {}
+		using token::token;
+		virtual void load(architecture &file);
+	private:
+		uint16_t action_;
+		token *parent_;
+		storage permission_set_;
 	};
 
 	class class_layout : public token
 	{
 	public:
-		class_layout(table *owner, token_value_t value);
-		virtual void load(architecture &file) {}
+		using token::token;
+		virtual void load(architecture &file);
+	private:
+		uint16_t packing_size_;
+		uint32_t class_size_;
+		type_def *parent_;
 	};
 
 	class field_layout : public token
 	{
 	public:
-		field_layout(table *owner, token_value_t value);
-		virtual void load(architecture &file) {}
+		using token::token;
+		virtual void load(architecture &file);
+	private:
+		uint32_t offset_;
+		field *field_;
 	};
 
 	class stand_alone_sig : public token
 	{
 	public:
-		stand_alone_sig(table *owner, token_value_t value);
-		virtual void load(architecture &file) {}
+		stand_alone_sig(meta_data *owner, token_value_t value);
+		virtual void load(architecture &file);
+	private:
+		std::unique_ptr<signature> signature_;
 	};
 
 	class event_map : public token
 	{
 	public:
-		event_map(table *owner, token_value_t value);
-		virtual void load(architecture &file) {}
+		using token::token;
+		virtual void load(architecture &file);
+	private:
+		type_def *parent_;
+		event *event_list_;
 	};
 
 	class event : public token
 	{
 	public:
-		event(table *owner, token_value_t value);
-		virtual void load(architecture &file) {}
+		using token::token;
+		virtual void load(architecture &file);
+	private:
+		uint16_t flags_;
+		std::string name_;
+		token *parent_;
 	};
 
 	class property_map : public token
 	{
 	public:
-		property_map(table *owner, token_value_t value);
-		virtual void load(architecture &file) {}
+		using token::token;
+		virtual void load(architecture &file);
+	private:
+		type_def *parent_;
+		property *property_list_;
 	};
 
 	class property : public token
 	{
 	public:
-		property(table *owner, token_value_t value);
-		virtual void load(architecture &file) {}
+		property(meta_data *owner, token_value_t value);
+		virtual void load(architecture &file);
+	private:
+		uint16_t flags_;
+		std::string name_;
+		std::unique_ptr<signature> signature_;
 	};
 
 	class method_semantics : public token
 	{
 	public:
-		method_semantics(table *owner, token_value_t value);
-		virtual void load(architecture &file) {}
+		using token::token;
+		virtual void load(architecture &file);
+	private:
+		uint16_t flags_;
+		method_def *method_;
+		token *association_;
 	};
 
 	class method_impl : public token
 	{
 	public:
-		method_impl(table *owner, token_value_t value);
-		virtual void load(architecture &file) {}
+		using token::token;
+		virtual void load(architecture &file);
+	private:
+		type_def *class_;
+		token *body_;
+		token *declaration_;
 	};
 
 	class module_ref : public token
 	{
 	public:
-		module_ref(table *owner, token_value_t value);
-		virtual void load(architecture &file) {}
+		using token::token;
+		virtual void load(architecture &file);
+		std::string name() const { return name_; }
+	private:
+		std::string name_;
 	};
 
 	class type_spec : public token
 	{
 	public:
-		type_spec(table *owner, token_value_t value);
-		virtual void load(architecture &file) {}
+		using token::token;
+		virtual void load(architecture &file);
+	private:
 	};
 
 	class impl_map : public token
 	{
 	public:
-		impl_map(table *owner, token_value_t value);
-		virtual void load(architecture &file) {}
+		using token::token;
+		virtual void load(architecture &file);
+		module_ref *import_scope() const { return import_scope_; }
+		std::string import_name() const { return import_name_; }
+	private:
+		uint16_t mapping_flags_;
+		token *member_forwarded_;
+		std::string import_name_;
+		module_ref *import_scope_;
 	};
 
 	class field_rva : public token
 	{
 	public:
-		field_rva(table *owner, token_value_t value);
-		virtual void load(architecture &file) {}
+		using token::token;
+		virtual void load(architecture &file);
+	private:
+		uint64_t address_;
+		field *field_;
 	};
 
 	class enc_log : public token
 	{
 	public:
-		enc_log(table *owner, token_value_t value);
-		virtual void load(architecture &file) {}
+		using token::token;
+		virtual void load(architecture &file);
+	private:
+		uint32_t token_;
+		uint32_t func_code_;
 	};
 
 	class enc_map : public token
 	{
 	public:
-		enc_map(table *owner, token_value_t value);
-		virtual void load(architecture &file) {}
+		using token::token;
+		virtual void load(architecture &file);
+	private:
+		uint32_t token_;
 	};
 
 	class assembly : public token
 	{
 	public:
-		assembly(table *owner, token_value_t value);
-		virtual void load(architecture &file) {}
+		using token::token;
+		virtual void load(architecture &file);
+	private:
+		uint32_t hash_id_;
+		format::ex_version_t version_;
+		uint16_t minor_version_;
+		uint16_t build_number_;
+		uint16_t revision_number_;
+		uint32_t flags_;
+		storage public_key_;
+		std::string name_;
+		std::string culture_;
 	};
 
 	class assembly_processor : public token
 	{
 	public:
-		assembly_processor(table *owner, token_value_t value);
+		using token::token;
 		virtual void load(architecture &file) {}
 	};
 
 	class assembly_os : public token
 	{
 	public:
-		assembly_os(table *owner, token_value_t value);
+		using token::token;
 		virtual void load(architecture &file) {}
 	};
 
 	class assembly_ref : public token
 	{
 	public:
-		assembly_ref(table *owner, token_value_t value);
-		virtual void load(architecture &file) {}
+		using token::token;
+		virtual void load(architecture &file);
+		std::string name() const { return name_; }
+	private:
+		format::ex_version_t version_;
+		uint16_t build_number_;
+		uint16_t revision_number_;
+		uint32_t flags_;
+		storage public_key_or_token_;
+		std::string name_;
+		std::string culture_;
+		storage hash_value_;
 	};
 
 	class assembly_ref_processor : public token
 	{
 	public:
-		assembly_ref_processor(table *owner, token_value_t value);
-		virtual void load(architecture &file) {}
+		using token::token;
+		virtual void load(architecture &file);
+	private:
+		uint32_t processor_;
+		assembly_ref *assembly_ref_;
 	};
 
 	class assembly_ref_os : public token
 	{
 	public:
-		assembly_ref_os(table *owner, token_value_t value);
-		virtual void load(architecture &file) {}
+		using token::token;
+		virtual void load(architecture &file);
+	private:
+		uint32_t os_platform_id_;
+		uint32_t os_major_version_;
+		uint32_t os_minor_version_;
+		assembly_ref *assembly_ref_;
 	};
 
-	class file_token : public token
+	class file : public token
 	{
 	public:
-		file_token(table *owner, token_value_t value);
+		using token::token;
 		virtual void load(architecture &file) {}
 	};
 
 	class exported_type : public token
 	{
 	public:
-		exported_type(table *owner, token_value_t value);
+		using token::token;
 		virtual void load(architecture &file) {}
+	private:
 	};
 
 	class manifest_resource : public token
 	{
 	public:
-		manifest_resource(table *owner, token_value_t value);
+		using token::token;
 		virtual void load(architecture &file) {}
+	private:
 	};
 
 	class nested_class : public token
 	{
 	public:
-		nested_class(table *owner, token_value_t value);
+		using token::token;
 		virtual void load(architecture &file) {}
+	private:
 	};
 
 	class generic_param : public token
 	{
 	public:
-		generic_param(table *owner, token_value_t value);
+		using token::token;
 		virtual void load(architecture &file) {}
+	private:
 	};
 
 	class method_spec : public token
 	{
 	public:
-		method_spec(table *owner, token_value_t value);
+		using token::token;
 		virtual void load(architecture &file) {}
+	private:
 	};
 
 	class generic_param_constraint : public token
 	{
 	public:
-		generic_param_constraint(table *owner, token_value_t value);
+		using token::token;
 		virtual void load(architecture &file) {}
+	private:
 	};
 
 	class table : public base::list<token>
@@ -665,6 +925,39 @@ namespace net
 		blob_stream *blob_ = nullptr;
 	};
 
+	class import_list;
+	class import;
+
+	class import_function : public base::import_function
+	{
+	public:
+		import_function(import *owner, uint32_t token, const std::string &name);
+		virtual std::string name() const { return name_; }
+		virtual uint64_t address() const { return token_; }
+	private:
+		uint32_t token_;
+		std::string name_;
+	};
+
+	class import : public base::import
+	{
+	public:
+		import(import_list *owner, const std::string &name);
+		virtual std::string name() const { return name_; }
+	private:
+		std::string name_;
+	};
+
+	class import_list : public base::import_list_t<import>
+	{
+	public:
+		using base::import_list_t<import>::import_list_t;
+		void load(architecture &file);
+	};
+
+	using segment = pe::segment;
+	using segment_list = pe::segment_list;
+
 	class architecture : public base::architecture
 	{
 	public:
@@ -673,11 +966,12 @@ namespace net
 		base::status load();
 		uint64_t image_base() const { return file_.image_base(); }
 		virtual meta_data *command_list() const { return meta_data_.get(); }
-		virtual pe::segment_list *segment_list() const { return file_.segment_list(); }
-		virtual base::import_list *import_list() const { return nullptr; }
+		virtual net::segment_list *segment_list() const { return file_.segment_list(); }
+		virtual net::import_list *import_list() const { return import_list_.get(); }
 		virtual base::operand_size address_size() const { return file_.address_size(); }
 	private:
 		pe::architecture &file_;
 		std::unique_ptr<meta_data> meta_data_;
+		std::unique_ptr<net::import_list> import_list_;
 	};
 }

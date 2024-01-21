@@ -114,10 +114,21 @@ namespace base
 
 	// segment_list
 
-	base::segment *segment_list::find_address(uint64_t address) const
+	segment *segment_list::find_address(uint64_t address) const
 	{
 		for (auto &item : *this) {
 			if (address >= item.address() && address < item.address() + item.size())
+				return &item;
+		}
+		return nullptr;
+	}
+
+	// import_list
+
+	import *import_list::find_name(const std::string &name) const
+	{
+		for (auto &item : *this) {
+			if (item.name() == name)
 				return &item;
 		}
 		return nullptr;

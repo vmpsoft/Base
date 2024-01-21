@@ -2,6 +2,7 @@
 #include "pe.h"
 #include "coff.h"
 #include "dotnet.h"
+#include "utils.h"
 
 namespace pe
 {
@@ -62,7 +63,7 @@ namespace pe
 		case format::directory_id::delay_import: return "Delay Import";
 		case format::directory_id::com_descriptor: return ".NET MetaData";
 		}
-		return "unknown";
+		return utils::format("%d", type_);
 	}
 
 	void directory::load(architecture &file)
@@ -241,7 +242,7 @@ namespace pe
 		case format::machine_id::cee: return "cee";
 		case format::machine_id::arm64: return "arm64";
 		}
-		return "unknown";
+		return utils::format("unknown 0x%X", machine_);
 	}
 
 	base::status architecture::load()
@@ -272,17 +273,17 @@ namespace pe
 			}
 			break;
 		case format::machine_id::amd64:
-		{
-			auto optional = read<format::optional_header_64_t>();
-			if (optional.magic != format::hdr64_magic)
-				throw std::runtime_error("Format error");
-			image_base_ = optional.image_base;
-			entry_point_ = optional.entry_point ? optional.entry_point + image_base_ : 0;
-			subsystem_ = optional.subsystem;
-			address_size_ = base::operand_size::qword;
-			num_data_directories = optional.num_data_directories;
-		}
-		break;
+			{
+				auto optional = read<format::optional_header_64_t>();
+				if (optional.magic != format::hdr64_magic)
+					throw std::runtime_error("Format error");
+				image_base_ = optional.image_base;
+				entry_point_ = optional.entry_point ? optional.entry_point + image_base_ : 0;
+				subsystem_ = optional.subsystem;
+				address_size_ = base::operand_size::qword;
+				num_data_directories = optional.num_data_directories;
+			}
+			break;
 		default:
 			return base::status::unsupported_cpu;
 		}

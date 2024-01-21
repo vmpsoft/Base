@@ -7,9 +7,7 @@ namespace base
 	public:
 		template<typename T>
 		void push(T value) { push((const uint8_t *)(&value), sizeof(T)); }
-		void push(const uint8_t *data, size_t size) { data_.insert(data_.end(), data, data + size); }
-	private:
-		std::vector<uint8_t> data_;
+		void push(const uint8_t *data, size_t size) { insert(end(), data, data + size); }
 	};
 
 	class unicode_string : public std::wstring
@@ -31,7 +29,9 @@ namespace base
 			bool operator==(const _Iterator &rhs) const { return base_ == rhs.base_; }
 			bool operator!=(const _Iterator &rhs) const { return !(*this == rhs); }
 			_Iterator &operator++() { ++base_; return *this; }
+			_Iterator &operator--() { --base_; return *this; }
 			_Iterator operator++(int) { return base_++; }
+			_Iterator operator--(int) { return base_--; }
 		private:
 			Base base_;
 		};
@@ -55,14 +55,16 @@ namespace base
 		using const_iterator = _Iterator<typename container::const_iterator>;
 
 		template <typename T, typename... Args>
-		T& add(Args&&... params) {
+		T &add(Args&&... params) {
 			auto item = std::make_unique<T>(std::forward<Args>(params)...);
 			T &res = *item;
 			items_.emplace_back(std::move(item));
 			return res;
 		}
 
-		T *item(size_t index) const { return items_[index].get(); }
+		T &item(size_t index) const { return *items_[index]; }
+		T &first() const { return *items_.front(); }
+		T &last() const { return *items_.back(); }
 		void pop() { items_.pop_back(); }
 		void clear() { items_.clear(); }
 		size_t size() const { return items_.size(); }
@@ -220,7 +222,6 @@ namespace base
 		architecture *owner_;
 	};
 
-
 	template<typename T>
 	class load_command_list_t : public load_command_list
 	{
@@ -279,8 +280,22 @@ namespace base
 	{
 	public:
 		import_list(architecture *owner) : owner_(owner) {}
+		import *find_name(const std::string &name) const;
 	private:
 		architecture *owner_;
+	};
+
+	template<typename T>
+	class import_list_t : public import_list
+	{
+	public:
+		using import_list::import_list;
+		using const_iterator = _CastIterator<list::const_iterator, const T>;
+		iterator begin() { return list::begin(); }
+		iterator end() { return list::end(); }
+		const_iterator begin() const { return list::begin(); }
+		const_iterator end() const { return list::end(); }
+		T *find_name(const std::string &name) const { return static_cast<T*>(import_list::find_name(name)); }
 	};
 
 	class format
