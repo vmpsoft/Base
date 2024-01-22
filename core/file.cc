@@ -1,4 +1,5 @@
 #include "file.h"
+#include "utils.h"
 
 namespace base
 {
@@ -84,7 +85,7 @@ namespace base
 
 	bool architecture::seek_address(uint64_t address) const
 	{
-		if (auto segment = segment_list()->find_address(address)) {
+		if (auto segment = segments()->find_mapped(address)) {
 			if (segment->physical_size() > address - segment->address()) {
 				seek(segment->physical_offset() + address - segment->address());
 				return true;
@@ -101,6 +102,13 @@ namespace base
 		return position - offset_;
 	}
 
+	// load_command
+
+	std::string load_command::name() const
+	{
+		return utils::format("%d", type());
+	}
+
 	// load_command_list
 
 	load_command *load_command_list::find_type(size_t type) const
@@ -114,10 +122,10 @@ namespace base
 
 	// segment_list
 
-	segment *segment_list::find_address(uint64_t address) const
+	segment *segment_list::find_mapped(uint64_t address) const
 	{
 		for (auto &item : *this) {
-			if (address >= item.address() && address < item.address() + item.size())
+			if (item.memory_type().mapped && address >= item.address() && address < item.address() + item.size())
 				return &item;
 		}
 		return nullptr;

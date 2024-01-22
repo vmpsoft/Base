@@ -219,7 +219,7 @@ namespace pe
 				}
 
 				size_t len = 0;
-				while (len < sizeof(short_name) && short_name[len]) len++;
+				while (len < std::size(short_name) && short_name[len]) len++;
 				return { short_name, len };
 			};
 		};
@@ -320,6 +320,20 @@ namespace pe
 			};
 		};
 
+		struct export_directory_t
+		{
+			uint32_t                    characteristics;
+			uint32_t                    timedate_stamp;
+			ex_version_t                version;
+			uint32_t                    name;
+			uint32_t                    base;
+			uint32_t                    num_functions;
+			uint32_t                    num_names;
+			uint32_t                    rva_functions;
+			uint32_t                    rva_names;
+			uint32_t                    rva_name_ordinals;
+		};
+
 		virtual bool check(base::stream &stream) const;
 		virtual std::unique_ptr<base::file> instance() const;
 	};
@@ -351,6 +365,8 @@ namespace pe
 	{
 	public:
 		using base::load_command_list::load_command_list;
+		template <typename... Args>
+		directory &add(Args&&... params) { return base::load_command_list::add<directory>(this, std::forward<Args>(params)...); }
 		void load(architecture &file, size_t count);
 	};
 
@@ -364,20 +380,20 @@ namespace pe
 		virtual uint32_t physical_offset() const { return physical_offset_; }
 		virtual uint32_t physical_size() const { return physical_size_; }
 		virtual std::string name() const { return name_; }
-		void set_name(const std::string &name) { name_ = name; }
+		virtual base::memory_type_t memory_type() const;
 	private:
-		uint64_t address_{};
-		uint32_t size_{};
-		uint32_t physical_offset_{};
-		uint32_t physical_size_{};
-		format::section_characteristics_t characteristics_{};
+		uint64_t address_;
+		uint32_t size_;
+		uint32_t physical_offset_;
+		uint32_t physical_size_;
+		format::section_characteristics_t characteristics_;
 		std::string name_;
 	};
 
-	class segment_list : public base::segment_list
+	class segment_list : public base::segment_list_t<segment>
 	{
 	public:
-		using base::segment_list::segment_list;
+		using base::segment_list_t<segment>::segment_list_t;
 		void load(architecture &file, size_t count, coff::string_table *string_table);
 	};
 
@@ -399,6 +415,8 @@ namespace pe
 	{
 	public:
 		using base::import::import;
+		template <typename... Args>
+		import_function & add(Args&&... params) { return base::import::add<import_function>(this, std::forward<Args>(params)...); }
 		bool load(architecture &file);
 		virtual std::string name() const { return name_; }
 	private:
@@ -409,7 +427,42 @@ namespace pe
 	{
 	public:
 		using base::import_list::import_list;
+		template <typename... Args>
+		import &add(Args&&... params) { return base::import_list::add<import>(this, std::forward<Args>(params)...); }
 		void load(architecture &file);
+	};
+
+	class export_symbol : public base::export_symbol
+	{
+	public:
+		export_symbol(uint64_t address, uint32_t ordinal) : address_(address), ordinal_(ordinal) {}
+		void load(architecture &file, uint64_t name_address, bool is_forwarded);
+		virtual uint64_t address() const { return address_; }
+		virtual std::string name() const { return name_; }
+		uint32_t ordinal() const { return ordinal_; }
+	private:
+		uint64_t address_;
+		uint32_t ordinal_;
+		std::string name_;
+		std::string forwarded_;
+	};
+
+	class export_list : public base::export_list
+	{
+		using iterator = _CastIterator<list::iterator, export_symbol>;
+		using const_iterator = _CastIterator<list::const_iterator, const export_symbol>;
+		iterator begin() { return list::begin(); }
+		iterator end() { return list::end(); }
+		const_iterator begin() const { return list::begin(); }
+		const_iterator end() const { return list::end(); }
+	public:
+		void load(architecture &file);
+		template <typename... Args>
+		export_symbol &add(Args&&... params) { return base::export_list::add<export_symbol>(std::forward<Args>(params)...); }
+	};
+
+	class symbol_list : public base::symbol_list
+	{
 	};
 
 	class architecture : public base::architecture
@@ -421,9 +474,11 @@ namespace pe
 		virtual uint64_t image_base() const { return image_base_; }
 		virtual uint64_t entry_point() const { return entry_point_; }
 		virtual base::operand_size address_size() const { return address_size_; }
-		virtual directory_list *command_list() const { return directory_list_.get(); }
-		virtual pe::segment_list *segment_list() const { return segment_list_.get(); }
-		virtual pe::import_list *import_list() const { return import_list_.get(); }
+		virtual directory_list *commands() const { return directory_list_.get(); }
+		virtual segment_list *segments() const { return segment_list_.get(); }
+		virtual import_list *imports() const { return import_list_.get(); }
+		virtual export_list *exports() const { return export_list_.get(); }
+		virtual symbol_list *symbols() const { return symbol_list_.get(); }
 	private:
 		format::machine_id machine_;
 		uint64_t image_base_;
@@ -431,8 +486,10 @@ namespace pe
 		format::subsystem_id subsystem_;
 		base::operand_size address_size_;
 		std::unique_ptr<directory_list> directory_list_;
-		std::unique_ptr<pe::segment_list> segment_list_;
-		std::unique_ptr<pe::import_list> import_list_;
+		std::unique_ptr<segment_list> segment_list_;
+		std::unique_ptr<import_list> import_list_;
+		std::unique_ptr<symbol_list> symbol_list_;
+		std::unique_ptr<export_list> export_list_;
 	};
 
 	class file : public base::file

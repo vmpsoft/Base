@@ -231,6 +231,7 @@ namespace net
 		};
 		token_value_t() = default;
 		token_value_t(token_type_id type_, uint32_t value_) : type(type_), value(value_) {}
+		token_value_t(uint32_t id_) : id(id) {}
 	};
 
 	struct token_encoding_t
@@ -281,6 +282,12 @@ namespace net
 	static constexpr token_encoding_t member_forwarded_encoding = token_encoding_t::construct(1,
 		token_type_id::field, token_type_id::method_def);
 
+	static constexpr token_encoding_t implementation_encoding = token_encoding_t::construct(2,
+		token_type_id::file, token_type_id::assembly_ref, token_type_id::exported_type);
+
+	static constexpr token_encoding_t type_or_methoddef_encoding = token_encoding_t::construct(1,
+		token_type_id::type_def, token_type_id::method_def);
+
 	class token
 	{
 	public:
@@ -288,6 +295,7 @@ namespace net
 		virtual void load(architecture &file) {}
 		uint32_t id() const { return value_.id; }
 		token_type_id type() const { return value_.type; }
+		token *next() const;
 	protected:
 		std::string read_string(architecture &file) const;
 		std::string read_user_string(uint32_t value) const;
@@ -341,6 +349,8 @@ namespace net
 		virtual void load(architecture &file);
 		std::string full_name() const;
 		std::string name() const { return name_; }
+		method_def *method_list() const { return method_list_; }
+		type_def *next() const { return static_cast<type_def *>(token::next()); }
 	private:
 		format::type_attributes_t flags_;
 		std::string name_;
@@ -352,12 +362,31 @@ namespace net
 		uint32_t class_size_;
 	};
 
+	class array_shape
+	{
+	public:
+		void load(storage_view &data);
+		std::string name() const;
+	private:
+		uint32_t rank_;
+		std::vector<uint32_t> sizes_;
+		std::vector<uint32_t> lo_bounds_;
+	};
+
+	class generic_arguments;
+
 	class element
 	{
 	public:
 		element(meta_data *owner) : owner_(owner) {}
+		void load(const storage &data);
 		void load(storage_view &data);
-		std::string name() const;
+		format::element_type_id type() const { return type_; }
+		std::string name(generic_arguments *args = nullptr) const;
+		uint32_t number() const { return generic_param_; }
+		element *next() const { return next_.get(); }
+		token *token() const { return token_; }
+		void push_args(generic_arguments &args, bool is_type) const;
 	private:
 		void read_type(storage_view &data);
 
@@ -368,10 +397,24 @@ namespace net
 		bool sentinel_;
 		uint32_t generic_param_;
 		std::unique_ptr<element> next_;
-		token *token_;
+		net::token *token_;
 		std::unique_ptr<signature> method_;
+		std::unique_ptr<array_shape> array_shape_;
 		base::list<element> mod_list_;
 		base::list<element> child_list_;
+	};
+
+	class generic_arguments
+	{
+	public:
+		generic_arguments(generic_arguments *src = nullptr);
+		void clear();
+		void push_arg(element *arg, bool is_type);
+		element *resolve(const element &type) const;
+		element *method_arg(size_t index) const { return (index < method_args_.size()) ? method_args_[index] : nullptr; }
+	private:
+		std::vector<element *> method_args_;
+		std::vector<element *> type_args_;
 	};
 
 	enum class signature_type_id : uint8_t
@@ -424,9 +467,10 @@ namespace net
 		signature(meta_data *owner);
 		void load(const storage &storage);
 		void load(storage_view &storage);
-		std::string ret_name() const;
-		std::string name() const;
+		std::string ret_name(generic_arguments *args = nullptr) const;
+		std::string name(generic_arguments *args = nullptr) const;
 		signature_type_t type() const { return type_; };
+		void push_args(generic_arguments &args, bool is_type) const;
 	private:
 		meta_data *owner_;
 		signature_type_t type_;
@@ -451,7 +495,11 @@ namespace net
 	public:
 		method_def(meta_data *owner, token_value_t value);
 		virtual void load(architecture &file);
+		std::string full_name(generic_arguments *args = nullptr) const;
 		type_def *declaring_type() const { return declaring_type_; }
+		void set_declaring_type(type_def *type) { declaring_type_ = type; }
+		uint64_t address() const { return address_; }
+		method_def *next() const { return static_cast<method_def *>(token::next()); }
 	private:
 		std::unique_ptr<signature> signature_;
 		uint64_t address_;
@@ -488,7 +536,7 @@ namespace net
 	public:
 		member_ref(meta_data *owner, token_value_t value);
 		virtual void load(architecture &file);
-		std::string full_name() const;
+		std::string full_name(generic_arguments *args = nullptr) const;
 		token *declaring_type() const { return declaring_type_; }
 	private:
 		std::unique_ptr<signature> signature_;
@@ -647,9 +695,12 @@ namespace net
 	class type_spec : public token
 	{
 	public:
-		using token::token;
+		type_spec(meta_data *owner, token_value_t value);
+		std::string name() const { return signature_->name(); }
+		element *signature() const { return signature_.get(); }
 		virtual void load(architecture &file);
 	private:
+		std::unique_ptr<element> signature_;
 	};
 
 	class impl_map : public token
@@ -716,14 +767,20 @@ namespace net
 	{
 	public:
 		using token::token;
-		virtual void load(architecture &file) {}
+		virtual void load(architecture &file);
+	private:
+		uint32_t processor_;
 	};
 
 	class assembly_os : public token
 	{
 	public:
 		using token::token;
-		virtual void load(architecture &file) {}
+		virtual void load(architecture &file);
+	private:
+		uint32_t os_platform_id_;
+		uint32_t os_major_version_;
+		uint32_t os_minor_version_;
 	};
 
 	class assembly_ref : public token
@@ -765,59 +822,83 @@ namespace net
 		assembly_ref *assembly_ref_;
 	};
 
-	class file : public token
+	class tfile : public token
 	{
 	public:
 		using token::token;
-		virtual void load(architecture &file) {}
+		virtual void load(architecture &file);
+	private:
+		uint32_t flags_;
+		std::string name_;
+		storage value_;
 	};
 
 	class exported_type : public token
 	{
 	public:
 		using token::token;
-		virtual void load(architecture &file) {}
+		virtual void load(architecture &file);
 	private:
+		uint32_t flags_;
+		uint32_t type_def_id_;
+		std::string name_;
+		std::string namespace_;
+		token *implementation_;
 	};
 
 	class manifest_resource : public token
 	{
 	public:
 		using token::token;
-		virtual void load(architecture &file) {}
+		virtual void load(architecture &file);
 	private:
+		uint32_t offset_;
+		uint32_t flags_;
+		std::string name_;
+		token *implementation_;
 	};
 
 	class nested_class : public token
 	{
 	public:
 		using token::token;
-		virtual void load(architecture &file) {}
+		virtual void load(architecture &file);
 	private:
+		type_def *nested_type_;
+		type_def *declaring_type_;
 	};
 
 	class generic_param : public token
 	{
 	public:
 		using token::token;
-		virtual void load(architecture &file) {}
+		virtual void load(architecture &file);
 	private:
+		uint16_t number_;
+		uint16_t flags_;
+		token *parent_;
+		std::string name_;
 	};
 
 	class method_spec : public token
 	{
 	public:
-		using token::token;
-		virtual void load(architecture &file) {}
+		method_spec(meta_data *owner, token_value_t value);
+		virtual void load(architecture &file);
+		std::string full_name() const;
 	private:
+		token *parent_;
+		std::unique_ptr<signature> signature_;
 	};
 
 	class generic_param_constraint : public token
 	{
 	public:
 		using token::token;
-		virtual void load(architecture &file) {}
+		virtual void load(architecture &file);
 	private:
+		generic_param *parent_;
+		token *constraint_;
 	};
 
 	class table : public base::list<token>
@@ -899,24 +980,31 @@ namespace net
 		storage data_;
 	};
 
-	class meta_data : public base::load_command_list_t<stream>
+	class meta_data : public base::load_command_list
 	{
+		using iterator = _CastIterator<list::iterator, stream>;
+		using const_iterator = _CastIterator<list::const_iterator, const stream>;
+		iterator begin() { return list::begin(); }
+		iterator end() { return list::end(); }
+		const_iterator begin() const { return list::begin(); }
+		const_iterator end() const { return list::end(); }
 	public:
-		using load_command_list_t::load_command_list_t;
+		using load_command_list::load_command_list;
+		template <typename T, typename... Args>
+		T &add(Args&&... params) { return base::load_command_list::add<T>(this, std::forward<Args>(params)...); }
 		void load(architecture &file, uint64_t address);
 		table *table(token_type_id type) const;
 		std::string user_string(uint32_t offset) const;
 		std::string string(uint32_t offset) const;
 		storage guid(uint32_t offset) const;
 		storage blob(uint32_t offset) const;
-		token *token(token_value_t id) const;
+		token *find(token_value_t id) const;
 		bool string_field_size() const { return heap_->offset_sizes().string_field_size; }
 		bool guid_field_size() const { return heap_->offset_sizes().guid_field_size; }
 		bool blob_field_size() const { return heap_->offset_sizes().blob_field_size; }
 		bool field_size(const token_encoding_t &encoding) const;
 		bool field_size(token_type_id type) const;
 	private:
-		uint32_t token_count(token_type_id type) const;
 		std::string version_;
 		heap_stream *heap_ = nullptr;
 		strings_stream *strings_ = nullptr;
@@ -943,15 +1031,26 @@ namespace net
 	{
 	public:
 		import(import_list *owner, const std::string &name);
+		template <typename... Args>
+		import_function & add(Args&&... params) { return base::import::add<import_function>(this, std::forward<Args>(params)...); }
 		virtual std::string name() const { return name_; }
 	private:
 		std::string name_;
 	};
 
-	class import_list : public base::import_list_t<import>
+	class import_list : public base::import_list
 	{
 	public:
-		using base::import_list_t<import>::import_list_t;
+		using base::import_list::import_list;
+		void load(architecture &file);
+		template <typename... Args>
+		import &add(Args&&... params) { return base::import_list::add<import>(this, std::forward<Args>(params)...); }
+		import *find_name(const std::string &name) const { return static_cast<import *>(base::import_list::find_name(name)); }
+	};
+
+	class symbol_list : public base::symbol_list
+	{
+	public:
 		void load(architecture &file);
 	};
 
@@ -965,13 +1064,16 @@ namespace net
 		virtual std::string name() const { return ".NET"; }
 		base::status load();
 		uint64_t image_base() const { return file_.image_base(); }
-		virtual meta_data *command_list() const { return meta_data_.get(); }
-		virtual net::segment_list *segment_list() const { return file_.segment_list(); }
-		virtual net::import_list *import_list() const { return import_list_.get(); }
 		virtual base::operand_size address_size() const { return file_.address_size(); }
+		virtual meta_data *commands() const { return meta_data_.get(); }
+		virtual segment_list *segments() const { return file_.segments(); }
+		virtual import_list *imports() const { return import_list_.get(); }
+		virtual symbol_list *symbols() const { return symbol_list_.get(); }
+		virtual base::export_list *exports() const { return nullptr; }
 	private:
 		pe::architecture &file_;
 		std::unique_ptr<meta_data> meta_data_;
-		std::unique_ptr<net::import_list> import_list_;
+		std::unique_ptr<import_list> import_list_;
+		std::unique_ptr<symbol_list> symbol_list_;
 	};
 }

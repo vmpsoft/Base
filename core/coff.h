@@ -23,6 +23,15 @@ namespace coff
                     uint32_t         long_name_offset;
                 };
             };
+
+            std::string to_string(coff::string_table *table) const
+            {
+                if (table && !is_short)
+                    return table->resolve(long_name_offset);
+                size_t len = 0;
+                while (len < std::size(short_name) && short_name[len]) len++;
+                return { short_name, len };
+            }
         };
 
         enum special_section_id : uint16_t

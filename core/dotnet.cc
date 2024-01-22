@@ -66,11 +66,12 @@ namespace net
 	{
 		meta_data_ = std::make_unique<meta_data>(this);
 		import_list_ = std::make_unique<net::import_list>(this);
+		symbol_list_ = std::make_unique<net::symbol_list>();
 	}
 
 	base::status architecture::load() 
 	{
-		auto dir = file_.command_list()->find_type(pe::format::directory_id::com_descriptor);
+		auto dir = file_.commands()->find_type(pe::format::directory_id::com_descriptor);
 		if (!dir || !seek_address(dir->address()))
 			return base::status::invalid_format;
 
@@ -80,6 +81,7 @@ namespace net
 
 		meta_data_->load(*this, header.meta_data.rva + image_base());
 		import_list_->load(*this);
+		symbol_list_->load(*this);
 
 		return base::status::success;
 	}
@@ -107,53 +109,75 @@ namespace net
 		std::map<token *, import *> import_map;
 		std::map<token *, import *> type_map;
 
-		auto table = file.command_list()->table(token_type_id::assembly_ref);
+		auto table = file.commands()->table(token_type_id::assembly_ref);
 		for (auto &token : *table) {
-			assembly_ref &ref = static_cast<assembly_ref &>(token);
+			auto &ref = static_cast<assembly_ref &>(token);
 			import *item = find_name(ref.name());
 			if (!item)
-				item = &add<import>(this, ref.name());
+				item = &add(ref.name());
 			import_map[&token] = item;
 		}
 
-		table = file.command_list()->table(token_type_id::module_ref);
+		table = file.commands()->table(token_type_id::module_ref);
 		for (auto &token : *table) {
-			module_ref &ref = static_cast<module_ref &>(token);
+			auto &ref = static_cast<module_ref &>(token);
 			import *item = find_name(ref.name());
 			if (!item)
-				item = &add<import>(this, ref.name());
+				item = &add(ref.name());
 			import_map[&token] = item;
 		}
 
-		table = file.command_list()->table(token_type_id::type_ref);
+		table = file.commands()->table(token_type_id::type_ref);
 		for (auto &token : *table) {
-			type_ref &ref = static_cast<type_ref &>(token);
+			auto &ref = static_cast<type_ref &>(token);
 			auto it = import_map.find(ref.resolution_scope());
 			if (it != import_map.end()) {
 				import *item = it->second;
 				type_map[&ref] = item;
-				item->add<import_function>(item, ref.id(), ref.full_name());
+				item->add(ref.id(), ref.full_name());
 			}
 		}
 
-		table = file.command_list()->table(token_type_id::member_ref);
+		table = file.commands()->table(token_type_id::type_spec);
 		for (auto &token : *table) {
-			member_ref &ref = static_cast<member_ref &>(token);
-			auto it = type_map.find(ref.declaring_type());
-			if (it != type_map.end()) {
-				import *item = it->second;
-				item->add<import_function>(item, ref.id(), ref.full_name());
-			}
-		}
+			auto &ref = static_cast<type_spec&>(token);
 
-		table = file.command_list()->table(token_type_id::impl_map);
-		for (auto &token : *table) {
-			auto ref = static_cast<impl_map &>(token);
-			auto it = import_map.find(ref.import_scope());
+			net::token *type = nullptr;
+			switch (ref.signature()->type()) {
+			case format::element_type_id::genericinst:
+				type = ref.signature()->next()->token();
+				break;
+			case format::element_type_id::valuetype:
+			case format::element_type_id::_class:
+				type = ref.signature()->token();
+				break;
+			}
+
+			if (!type || (type->type() != token_type_id::type_ref))
+				continue;
+
+			auto it = import_map.find(static_cast<type_ref *>(type)->resolution_scope());
 			if (it != import_map.end()) {
 				import *item = it->second;
-				item->add<import_function>(item, ref.id(), ref.import_name());
+				type_map[&ref] = item;
+				item->add(ref.id(), ref.name());
 			}
+		}
+
+		table = file.commands()->table(token_type_id::member_ref);
+		for (auto &token : *table) {
+			auto &ref = static_cast<member_ref &>(token);
+			auto it = type_map.find(ref.declaring_type());
+			if (it != type_map.end())
+				it->second->add(ref.id(), ref.full_name());
+		}
+
+		table = file.commands()->table(token_type_id::impl_map);
+		for (auto &token : *table) {
+			auto &ref = static_cast<impl_map &>(token);
+			auto it = import_map.find(ref.import_scope());
+			if (it != import_map.end())
+				it->second->add(ref.id(), ref.import_name());
 		}
 	}
 
@@ -174,17 +198,17 @@ namespace net
 			auto stream_header = file.read<format::stream_header_t>();
 			std::string stream_name = file.read_string();
 			if (stream_name == "#~" && !heap_)
-				heap_ = &add<heap_stream>(this, address + stream_header.offset, stream_header.size, stream_name);
+				heap_ = &add<heap_stream>(address + stream_header.offset, stream_header.size, stream_name);
 			else if (stream_name == "#Strings" && !strings_)
-				strings_ = &add<strings_stream>(this, address + stream_header.offset, stream_header.size, stream_name);
+				strings_ = &add<strings_stream>(address + stream_header.offset, stream_header.size, stream_name);
 			else if (stream_name == "#US" && !user_strings_)
-				user_strings_ = &add<user_strings_stream>(this, address + stream_header.offset, stream_header.size, stream_name);
+				user_strings_ = &add<user_strings_stream>(address + stream_header.offset, stream_header.size, stream_name);
 			else if (stream_name == "#Blob" && !blob_)
-				blob_ = &add<blob_stream>(this, address + stream_header.offset, stream_header.size, stream_name);
+				blob_ = &add<blob_stream>(address + stream_header.offset, stream_header.size, stream_name);
 			else if (stream_name == "#GUID" && !guid_)
-				guid_ = &add<guid_stream>(this, address + stream_header.offset, stream_header.size, stream_name);
+				guid_ = &add<guid_stream>(address + stream_header.offset, stream_header.size, stream_name);
 			else
-				add<stream>(this, address + stream_header.offset, stream_header.size, stream_name);
+				add<stream>(address + stream_header.offset, stream_header.size, stream_name);
 
 			size_t pad = stream_name.size() + 1;
 			while (pad & 3) {
@@ -201,15 +225,21 @@ namespace net
 				item.load(file);
 		}
 		heap_->load(file);
+
+		auto table = this->table(token_type_id::type_def);
+		for (auto &item : *table) {
+			auto &type = static_cast<type_def &>(item);
+			type_def *next = type.next();
+			method_def *method_end = next ? next->method_list() : nullptr;
+			for (method_def *method = type.method_list(); method && method != method_end; method = method->next())
+				method->set_declaring_type(&type);
+		}
 	}
 
 	table *meta_data::table(token_type_id type) const
 	{
-		for (auto &item : heap_->table_list()) {
-			if (item.type() == type)
-				return &item;
-		}
-		return nullptr;
+		size_t index = (size_t)type;
+		return (index < heap_->table_list().size()) ? &heap_->table_list().item(index) : nullptr;
 	}
 
 	std::string meta_data::user_string(uint32_t offset) const
@@ -246,7 +276,7 @@ namespace net
 		return blob_->resolve(offset);
 	}
 
-	token *meta_data::token(token_value_t id) const
+	token *meta_data::find(token_value_t id) const
 	{
 		if (!id.value)
 			return nullptr;
@@ -257,24 +287,28 @@ namespace net
 		return (id.value <= table->size()) ? &table->item(id.value - 1) : nullptr;
 	}
 
-	uint32_t meta_data::token_count(token_type_id type) const
-	{
-		auto *table = this->table(type);
-		return table ? (uint32_t)table->size() : 0;
-	}
-
 	bool meta_data::field_size(const token_encoding_t &encoding) const
 	{
-		uint32_t count = 0;
+		size_t count = 0;
 		for (size_t index = 0; index < encoding.size; index++) {
-			count = std::max<uint32_t>(count, token_count(encoding.types[index]));
+			token_type_id type = encoding.types[index];
+			if (type == token_type_id::invalid)
+				continue;
+
+			auto table = this->table(type);
+			if (!table)
+				throw std::runtime_error("Invalid encoding");
+			count = std::max(count, table->size());
 		}
-		return count >= (1ul << (16 - encoding.bits));
+		return count >= ((size_t)1 << (16 - encoding.bits));
 	}
 
 	bool meta_data::field_size(token_type_id type) const
 	{
-		return token_count(type) > 0xffff;
+		auto table = this->table(type);
+		if (!table)
+			throw std::runtime_error("Invalid table type");
+		return table->size() > std::numeric_limits<uint16_t>::max();
 	}
 
 	// stream
@@ -428,6 +462,7 @@ namespace net
 			case token_type_id::field_layout: add<field_layout>(owner, token_value); break;
 			case token_type_id::stand_alone_sig: add<stand_alone_sig>(owner, token_value); break;
 			case token_type_id::event_map: add<event_map>(owner, token_value); break;
+			case token_type_id::event: add<event>(owner, token_value); break;
 			case token_type_id::property_map: add<property_map>(owner, token_value); break;
 			case token_type_id::property: add<property>(owner, token_value); break;
 			case token_type_id::method_semantics: add<method_semantics>(owner, token_value); break;
@@ -444,7 +479,7 @@ namespace net
 			case token_type_id::assembly_ref: add<assembly_ref>(owner, token_value); break;
 			case token_type_id::assembly_ref_processor: add<assembly_ref_processor>(owner, token_value); break;
 			case token_type_id::assembly_ref_os: add<assembly_ref_os>(owner, token_value); break;
-			case token_type_id::file: add<file>(owner, token_value); break;
+			case token_type_id::file: add<tfile>(owner, token_value); break;
 			case token_type_id::exported_type: add<exported_type>(owner, token_value); break;
 			case token_type_id::manifest_resource: add<manifest_resource>(owner, token_value); break;
 			case token_type_id::nested_class: add<nested_class>(owner, token_value); break;
@@ -496,15 +531,20 @@ namespace net
 	{
 		uint32_t value = meta_->field_size(encoding) ? file.read<uint32_t>() : file.read<uint16_t>();
 		size_t type_index = (value & ((1ul << encoding.bits) - 1));
-		if (type_index >= encoding.size || encoding.types[type_index] == token_type_id::invalid)
+		if (type_index >= encoding.size)
 			throw std::runtime_error("Unknown ref type");
-		return meta_->token({ encoding.types[type_index], value >> encoding.bits });
+		return meta_->find({ encoding.types[type_index], value >> encoding.bits });
 	}
 
 	token *token::read_token(architecture &file, token_type_id type) const
 	{
 		uint32_t value = meta_->field_size(type) ? file.read<uint32_t>() : file.read<uint16_t>();
-		return meta_->token({ type, value });
+		return meta_->find({ type, value });
+	}
+
+	token *token::next() const
+	{
+		return meta_->find(id() + 1);
 	}
 
 	// module
@@ -611,6 +651,11 @@ namespace net
 		param_list_ = static_cast<param *>(read_token(file, token_type_id::param));
 	}
 
+	std::string method_def::full_name(generic_arguments *args) const
+	{
+		return symbol_name(signature_->ret_name(args), declaring_type_ ? declaring_type_->full_name() : "<nullptr>", name_, signature_->name(args));
+	}
+
 	// param
 
 	void param::load(architecture &file)
@@ -643,8 +688,10 @@ namespace net
 		signature_->load(read_blob(file));
 	}
 
-	std::string member_ref::full_name() const
+	std::string member_ref::full_name(generic_arguments *in_args) const
 	{
+		generic_arguments args(in_args);
+
 		std::string type_name;
 		if (declaring_type_) {
 			switch (declaring_type_->type()) {
@@ -656,17 +703,15 @@ namespace net
 				break;
 			case token_type_id::type_spec:
 				{
-					/*
-					ILTypeSpec *type_spec = static_cast<ILTypeSpec *>(declaring_type_);
-					type_name = type_spec->name(mode);
-					if (type_spec->signature()->type() == ELEMENT_TYPE_GENERICINST) {
-						args.push_type_args(type_spec->signature()->generic_arguments());
+					type_spec *type = static_cast<type_spec *>(declaring_type_);
+					type_name = type->name();
+					if (type->signature()->type() == format::element_type_id::genericinst) {
+						type->signature()->push_args(args, true);
 						if (type_name.substr(0, 9) == "valuetype")
 							type_name = type_name.substr(10);
 						else if (type_name.substr(0, 5) == "class")
 							type_name = type_name.substr(6);
 					}
-					*/
 				}
 				break;
 			case token_type_id::method_def:
@@ -677,7 +722,7 @@ namespace net
 		else
 			type_name = "<nullptr>";
 
-		return symbol_name(signature_->ret_name(), type_name, name_, signature_->type().is_method() ? signature_->name() : "");
+		return symbol_name(signature_->ret_name(&args), type_name, name_, signature_->type().is_method() ? signature_->name(&args) : "");
 	}
 
 	// constant
@@ -813,9 +858,15 @@ namespace net
 
 	// type_spec
 
+	type_spec::type_spec(meta_data *owner, token_value_t value)
+		: token(owner, value)
+	{
+		signature_ = std::make_unique<element>(owner);
+	}
+
 	void type_spec::load(architecture &file)
 	{
-		read_blob(file);
+		signature_->load(read_blob(file));
 	}
 
 	// impl_map
@@ -865,6 +916,22 @@ namespace net
 		culture_ = read_string(file);
 	}
 
+	// assembly_processor
+
+	void assembly_processor::load(architecture &file)
+	{
+		processor_ = file.read<uint32_t>();
+	}
+
+	// assembly_os
+
+	void assembly_os::load(architecture &file)
+	{
+		os_platform_id_ = file.read<uint32_t>();
+		os_major_version_ = file.read<uint32_t>();
+		os_minor_version_ = file.read<uint32_t>();
+	}
+
 	// assembly_ref
 
 	void assembly_ref::load(architecture &file)
@@ -897,7 +964,136 @@ namespace net
 		assembly_ref_ = static_cast<assembly_ref *>(read_token(file, token_type_id::assembly_ref));
 	}
 
+	// file
+
+	void tfile::load(architecture &file)
+	{
+		flags_ = file.read<uint32_t>();
+		name_ = read_string(file);
+		value_ = read_blob(file);
+	}
+
+	// exported_type
+
+	void exported_type::load(architecture &file)
+	{
+		flags_ = file.read<uint32_t>();
+		type_def_id_ = file.read<uint32_t>();
+		name_ = read_string(file);
+		namespace_ = read_string(file);
+		implementation_ = read_token(file, implementation_encoding);
+	}
+
+	// manifest_resource
+
+	void manifest_resource::load(architecture &file)
+	{
+		offset_ = file.read<uint32_t>();
+		flags_ = file.read<uint32_t>();
+		name_ = read_string(file);
+		implementation_ = read_token(file, implementation_encoding);
+	}
+
+	// nested_class
+
+	void nested_class::load(architecture &file)
+	{
+		nested_type_ = static_cast<type_def *>(read_token(file, token_type_id::type_def));
+		declaring_type_ = static_cast<type_def *>(read_token(file, token_type_id::type_def));
+	}
+
+	// generic_param
+
+	void generic_param::load(architecture &file)
+	{
+		number_ = file.read<uint16_t>();
+		flags_ = file.read<uint16_t>();
+		parent_ = read_token(file, type_or_methoddef_encoding);
+		name_ = read_string(file);
+	}
+
+	// method_spec
+
+	method_spec::method_spec(meta_data *owner, token_value_t value)
+		: token(owner, value)
+	{
+		signature_ = std::make_unique<signature>(owner);
+	}
+
+	void method_spec::load(architecture &file)
+	{
+		parent_ = read_token(file, method_def_ref_encoding);
+		signature_->load(read_blob(file));
+	}
+
+	std::string method_spec::full_name() const
+	{
+		if (parent_) {
+			generic_arguments args;
+			signature_->push_args(args, false);
+
+			switch (parent_->type()) {
+			case token_type_id::method_def:
+				return static_cast<method_def *>(parent_)->full_name(&args);
+			case token_type_id::member_ref:
+				return static_cast<member_ref *>(parent_)->full_name(&args);
+			}
+		}
+
+		return "<nullptr>";
+	}
+
+	// generic_param_constraint
+
+	void generic_param_constraint::load(architecture &file)
+	{
+		parent_ = static_cast<generic_param *>(read_token(file, token_type_id::generic_param));
+		constraint_ = read_token(file, type_def_ref_encoding);
+	}
+
+	// array_shape
+
+	void array_shape::load(storage_view &data)
+	{
+		rank_ = data.read_encoded();
+		size_t count = data.read_encoded();
+		for (size_t i = 0; i < count; i++) {
+			sizes_.push_back(data.read_encoded());
+		}
+		count = data.read_encoded();
+		for (size_t i = 0; i < count; i++) {
+			lo_bounds_.push_back(data.read_encoded());
+		}
+	}
+
+	std::string array_shape::name() const
+	{
+		std::string res;
+
+		res += '[';
+		for (size_t i = 0; i < rank_; i++) {
+			if (i > 0)
+				res += ',';
+			if (i < lo_bounds_.size()) {
+				uint32_t lo_bound = lo_bounds_[i];
+				res += utils::format("%d..", lo_bound);
+				if (i < sizes_.size())
+					res += utils::format("%d", lo_bound + sizes_[rank_] - 1);
+				else
+					res += '.';
+			}
+		}
+		res += ']';
+		return res;
+	}
+
 	// element
+
+	void element::load(const storage &data)
+	{
+		storage_view stream(data);
+		load(stream);
+	}
 
 	void element::load(storage_view &data)
 	{
@@ -917,7 +1113,7 @@ namespace net
 			case format::element_type_id::cmod_reqd:
 			case format::element_type_id::cmod_opt:
 				data.seek(id);
-				mod_list_.add<element>(owner_).read_type(data);
+				mod_list_.add(owner_).read_type(data);
 				break;
 			default:
 				data.seek(id);
@@ -976,7 +1172,7 @@ namespace net
 					throw std::runtime_error(utils::format("Invalid token type at signature offset %d", pos));
 				}
 				token_value_t value = { ref_type, ref_value >> 2 };
-				token_ = owner_->token(value);
+				token_ = owner_->find(value);
 				if (!token_)
 					throw std::runtime_error(utils::format("Invalid token 0x%x at signature offset %d", value.id, pos));
 			}
@@ -999,10 +1195,8 @@ namespace net
 		case format::element_type_id::array:
 			next_ = std::make_unique<element>(owner_);
 			next_->load(data);
-			/*
-			array_shape_ = new ILArrayShape();
+			array_shape_ = std::make_unique<array_shape>();
 			array_shape_->load(data);
-			*/
 			break;
 		case format::element_type_id::mvar:
 		case format::element_type_id::var:
@@ -1013,8 +1207,8 @@ namespace net
 			next_->load(data);
 			{
 				size_t count = data.read_encoded();
-				for (size_t index = 0; index < count; index++) {
-					child_list_.add<element>(owner_).load(data);
+				for (size_t i = 0; i < count; i++) {
+					child_list_.add(owner_).load(data);
 				}
 			}
 			break;
@@ -1023,7 +1217,7 @@ namespace net
 		}
 	}
 
-	std::string element::name() const
+	std::string element::name(generic_arguments *args) const
 	{
 		std::string res;
 
@@ -1088,11 +1282,11 @@ namespace net
 			res += "string";
 			break;
 		case format::element_type_id::szarray:
-			res += next_->name();
+			res += next_->name(args);
 			res += "[]";
 			break;
 		case format::element_type_id::ptr:
-			res += next_->name();
+			res += next_->name(args);
 			res += '*';
 			break;
 		case format::element_type_id::typedbyref:
@@ -1109,7 +1303,7 @@ namespace net
 					res += "thiscall ";
 					break;
 				case signature_type_id::fast_call:
-					res = "fastcall ";
+					res += "fastcall ";
 					break;
 				}
 				res += method_->ret_name();
@@ -1117,8 +1311,8 @@ namespace net
 			}
 			break;
 		case format::element_type_id::array:
-			res += next_->name();
-			//res += array_shape_->name();
+			res += next_->name(args);
+			res += array_shape_->name();
 			break;
 		case format::element_type_id::valuetype:
 		case format::element_type_id::_class:
@@ -1140,7 +1334,7 @@ namespace net
 				for (auto &child : child_list_) {
 					if (need_comma)
 						res += ", ";
-					res += child.name();
+					res += child.name(args);
 					need_comma = true;
 				}
 			}
@@ -1148,12 +1342,10 @@ namespace net
 			break;
 		case format::element_type_id::mvar:
 		case format::element_type_id::var:
-			/*
-			if (ILType *gen_type = args ? args->resolve(const_cast<ILType *>(this)) : nullptr)
-				res += gen_type->name(mode);
+			if (element *gen_type = args ? args->resolve(*this) : nullptr)
+				res += gen_type->name();
 			else
-				res += string_format("%s%d", (type_ == ELEMENT_TYPE_MVAR) ? "!!" : "!", generic_param_);
-				*/
+				res += utils::format("%s%d", (type_ == format::element_type_id::mvar) ? "!!" : "!", generic_param_);
 			break;
 		case format::element_type_id::cmod_reqd:
 		case format::element_type_id::cmod_opt:
@@ -1171,9 +1363,9 @@ namespace net
 			break;
 		}
 
-		for (auto it = mod_list_.end(); it != mod_list_.begin(); it--) {
+		for (auto it = mod_list_.end(); it != mod_list_.begin();) {
 			res += ' ';
-			res += (*it).name();
+			res += (*--it).name(args);
 		}
 
 		if (byref_)
@@ -1183,6 +1375,50 @@ namespace net
 			res += " pinned";
 
 		return res;
+	}
+
+	void element::push_args(generic_arguments &args, bool is_type) const
+	{
+		if (type_ == format::element_type_id::genericinst) {
+			for (auto &child : child_list_) {
+				args.push_arg(&child, is_type);
+			}
+		}
+	}
+
+	// generic_arguments
+
+	generic_arguments::generic_arguments(generic_arguments *src)
+	{
+		if (src) {
+			method_args_ = src->method_args_;
+			type_args_ = src->type_args_;
+		}
+	}
+
+	void generic_arguments::clear()
+	{
+		method_args_.clear();
+		type_args_.clear();
+	}
+
+	void generic_arguments::push_arg(element *arg, bool is_type)
+	{
+		if (is_type)
+			type_args_.push_back(arg);
+		else 
+			method_args_.push_back(arg);
+	}
+
+	element *generic_arguments::resolve(const element &type) const
+	{
+		switch (type.type()) {
+		case format::element_type_id::mvar:
+			return (type.number() < method_args_.size()) ? method_args_[type.number()] : nullptr;
+		case format::element_type_id::var:
+			return (type.number() < type_args_.size()) ? type_args_[type.number()] : nullptr;
+		}
+		return nullptr;
 	}
 
 	// signature
@@ -1219,7 +1455,7 @@ namespace net
 				size_t count = data.read_encoded();
 				ret_->load(data);
 				for (size_t i = 0; i < count; i++) {
-					add<element>(owner_).load(data);
+					add(owner_).load(data);
 				}
 			}
 			break;
@@ -1231,7 +1467,7 @@ namespace net
 			{
 				size_t count = data.read_encoded();
 				for (size_t i = 0; i < count; i++) {
-					add<element>(owner_).load(data);
+					add(owner_).load(data);
 				}
 			}
 			break;
@@ -1240,18 +1476,18 @@ namespace net
 		}
 	}
 
-	std::string signature::ret_name() const
+	std::string signature::ret_name(generic_arguments *args) const
 	{
 		std::string res;
 
 		if (type_.has_this)
 			res = "instance ";
 
-		res += ret_->name();
+		res += ret_->name(args);
 		return res;
 	}
 
-	std::string signature::name() const
+	std::string signature::name(generic_arguments *args) const
 	{
 		std::string res;
 
@@ -1274,12 +1510,10 @@ namespace net
 				for (size_t i = 0; i < gen_param_count_; i++) {
 					if (i > 0)
 						res += ", ";
-					/*
-					if (ILType *gen_type = args ? args->method_arg(i) : nullptr)
-						res += gen_type->name(mode);
+					if (element *gen_type = args ? args->method_arg(i) : nullptr)
+						res += gen_type->name();
 					else
-						res += string_format("%d", i);
-						*/
+						res += utils::format("%d", i);
 				}
 				res += '>';
 			}
@@ -1290,7 +1524,7 @@ namespace net
 				for (auto &item : *this) {
 					if (need_comma)
 						res += ", ";
-					res += item.name();
+					res += item.name(args);
 					need_comma = true;
 				}
 			}
@@ -1299,5 +1533,28 @@ namespace net
 		}
 
 		return res;
+	}
+
+	void signature::push_args(generic_arguments &args, bool is_type) const
+	{
+		if (type_.generic) {
+			for (auto &item : *this) {
+				args.push_arg(&item, is_type);
+			}
+		}
+	}
+
+	// symbol_list
+
+	void symbol_list::load(architecture &file)
+	{
+		auto table = file.commands()->table(token_type_id::method_def);
+		for (auto &token : *table) {
+			auto &method = static_cast<method_def &>(token);
+			if (!method.declaring_type())
+				continue;
+
+			add(method.address(), method.full_name(), base::symbol_type_id::function);
+		}
 	}
 }

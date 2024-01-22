@@ -26,7 +26,7 @@ namespace pe
 		auto &pe = add<architecture>(this, 0, size());
 		base::status status = pe.load();
 		if (status == base::status::success) {
-			auto dir = pe.command_list()->find_type(format::directory_id::com_descriptor);
+			auto dir = pe.commands()->find_type(format::directory_id::com_descriptor);
 			if (dir && dir->address()) {
 				auto &net = add<net::architecture>(pe);
 				status = net.load();
@@ -63,7 +63,7 @@ namespace pe
 		case format::directory_id::delay_import: return "Delay Import";
 		case format::directory_id::com_descriptor: return ".NET MetaData";
 		}
-		return utils::format("%d", type_);
+		return base::load_command::name();
 	}
 
 	void directory::load(architecture &file)
@@ -78,7 +78,10 @@ namespace pe
 	void directory_list::load(architecture &file, size_t count)
 	{
 		for (size_t type = 0; type < count; type++) {
-			add<directory>(this, static_cast<format::directory_id>(type)).load(file);
+			auto &item = add(static_cast<format::directory_id>(type));
+			item.load(file);
+			if (!item.address() && !item.size())
+				pop();
 		}
 	}
 
@@ -95,12 +98,26 @@ namespace pe
 		name_ = header.name.to_string(table);
 	}
 
+	base::memory_type_t segment::memory_type() const
+	{
+		base::memory_type_t res{};
+		res.read = characteristics_.mem_read;
+		res.write = characteristics_.mem_write;
+		res.execute = characteristics_.mem_execute;
+		res.discardable = characteristics_.mem_discardable;
+		res.not_cached = characteristics_.mem_not_cached;
+		res.not_paged = characteristics_.mem_not_paged;
+		res.shared = characteristics_.mem_shared;
+		res.mapped = true;
+		return res;
+	}
+
 	// segment_list
 
 	void segment_list::load(architecture &file, size_t count, coff::string_table *table)
 	{
 		for (size_t index = 0; index < count; ++index) {
-			add<segment>(this).load(file, table);
+			add().load(file, table);
 		}
 	}
 
@@ -109,8 +126,7 @@ namespace pe
 	import_function::import_function(import *owner, uint64_t address)
 		: base::import_function(owner), address_(address)
 	{
-		is_ordinal_ = false;
-		ordinal_ = 0;
+
 	}
 
 	bool import_function::load(architecture &file)
@@ -135,6 +151,7 @@ namespace pe
 
 		if (is_ordinal_) {
 			ordinal_ = (uint32_t)value;
+			name_ = utils::format("Ordinal: %.4X", ordinal_);
 		} else {
 			auto position = file.tell();
 			if (!file.seek_address(value + file.image_base() + sizeof(uint16_t)))
@@ -165,7 +182,7 @@ namespace pe
 
 		uint64_t address = header.rva_first_thunk + file.image_base();
 		while (true) {
-			if (!add<import_function>(this, address).load(file)) {
+			if (!add(address).load(file)) {
 				pop();
 				break;
 			}
@@ -180,7 +197,7 @@ namespace pe
 
 	void import_list::load(architecture &file)
 	{
-		auto dir = file.command_list()->find_type(format::directory_id::import);
+		auto dir = file.commands()->find_type(format::directory_id::import);
 		if (!dir)
 			return;
 
@@ -188,10 +205,76 @@ namespace pe
 			throw std::runtime_error("Format error");
 
 		while (true) {
-			if (!add<import>(this).load(file)) {
+			if (!add().load(file)) {
 				pop();
 				return;
 			}
+		}
+	}
+
+	// export_symbol
+
+	void export_symbol::load(architecture &file, uint64_t name_address, bool is_forwarded)
+	{
+		if (name_address) {
+			if (!file.seek_address(name_address))
+				throw std::runtime_error("Format error");
+			name_ = file.read_string();
+		}
+
+		if (is_forwarded) {
+			if (!file.seek_address(address_))
+				throw std::runtime_error("Format error");
+			forwarded_ = file.read_string();
+		}
+	}
+
+	// export_list
+
+	void export_list::load(architecture &file)
+	{
+		auto dir = file.commands()->find_type(format::directory_id::exports);
+		if (!dir)
+			return;
+
+		if (!file.seek_address(dir->address()))
+			throw std::runtime_error("Format error");
+
+		auto header = file.read<format::export_directory_t>();
+		if (!header.num_functions)
+			return;
+
+		std::map<uint32_t, uint32_t> name_map;
+		if (header.num_names) {
+			if (!file.seek_address(header.rva_names + file.image_base()))
+				throw std::runtime_error("Format error");
+
+			std::vector<uint32_t> rva_names;
+			rva_names.resize(header.num_names);
+			for (size_t i = 0; i < header.num_names; i++) {
+				rva_names[i] = file.read<uint32_t>();
+			}
+
+			if (!file.seek_address(header.rva_name_ordinals + file.image_base()))
+				throw std::runtime_error("Format error");
+
+			for (size_t i = 0; i < header.num_names; i++) {
+				name_map[header.base + file.read<uint16_t>()] = rva_names[i];
+			}
+		}
+
+		if (!file.seek_address(header.rva_functions + file.image_base()))
+			throw std::runtime_error("Format error");
+
+		for (uint32_t index = 0; index < header.num_functions; index++) {
+			if (uint32_t rva = file.read<uint32_t>()) {
+				add(rva + file.image_base(), header.base + index);
+			}
+		}
+
+		for (auto &item : *this) {
+			auto it = name_map.find(item.ordinal());
+			item.load(file, (it != name_map.end()) ? it->second + file.image_base() : 0, (item.address() >= dir->address() && item.address() < dir->address() + dir->size()));
 		}
 	}
 	
@@ -208,6 +291,8 @@ namespace pe
 		directory_list_ = std::make_unique<directory_list>(this);
 		segment_list_ = std::make_unique<pe::segment_list>(this);
 		import_list_ = std::make_unique<pe::import_list>(this);
+		export_list_ = std::make_unique<pe::export_list>();
+		symbol_list_ = std::make_unique<pe::symbol_list>();
 	}
 
 	std::string architecture::name() const
@@ -300,17 +385,34 @@ namespace pe
 		directory_list_->load(*this, num_data_directories);
 
 		machine_ = file_header.machine;
-		{
-			coff::string_table table;
-			if (file_header.ptr_symbols) {
-				seek(file_header.ptr_symbols + file_header.num_symbols * sizeof(coff::format::symbol_t));
-				table.load(*this);
-			}
-			seek(dos_header.e_lfanew + sizeof(uint32_t) + sizeof(format::file_header_t) + file_header.size_optional_header);
-			segment_list_->load(*this, file_header.num_sections, table.empty() ? nullptr : &table);
+
+		coff::string_table string_table;
+		if (file_header.ptr_symbols) {
+			seek(file_header.ptr_symbols + file_header.num_symbols * sizeof(coff::format::symbol_t));
+			string_table.load(*this);
 		}
+		seek(dos_header.e_lfanew + sizeof(uint32_t) + sizeof(format::file_header_t) + file_header.size_optional_header);
+		segment_list_->load(*this, file_header.num_sections, &string_table);
 
 		import_list_->load(*this);
+		export_list_->load(*this);
+
+		if (file_header.ptr_symbols) {
+			seek(file_header.ptr_symbols);
+			for (size_t i = 0; i < file_header.num_symbols; i++) {
+				auto symbol = read<coff::format::symbol_t>();
+				switch (symbol.storage_class) {
+				case coff::format::storage_class_id::public_symbol:
+				case coff::format::storage_class_id::private_symbol:
+					if (symbol.section_index == 0 || symbol.section_index >= segment_list_->size())
+						continue;
+
+					symbol_list_->add(segment_list_->item(symbol.section_index - 1).address() + symbol.value, symbol.name.to_string(&string_table),
+						(symbol.derived_type == coff::format::derived_type_id::function) ? base::symbol_type_id::function : base::symbol_type_id::data);
+					break;
+				}
+			}
+		}
 
 		return base::status::success;
 	}
