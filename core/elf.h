@@ -573,6 +573,7 @@ namespace elf
 	class import_list;
 	class import;
 	class symbol;
+	class export_list;
 
 	class segment : public base::segment
 	{
@@ -674,13 +675,17 @@ namespace elf
 		void load(architecture &file, const string_table &table);
 		std::string name() const { return name_; }
 		uint16_t version() const { return version_; }
+		void set_version(uint16_t version) { version_ = version; }
 		format::symbol_type_id_t type() const { return info_.type; }
 		format::symbol_bind_id_t bind() const { return info_.bind; }
-		void set_version(uint16_t version) { version_ = version; }
+		uint64_t value() const { return value_; }
+		uint16_t shndx() const { return shndx_; }
 	private:
 		std::string name_;
 		format::symbol_info_t info_;
 		uint16_t version_;
+		uint16_t shndx_;
+		uint64_t value_;
 	};
 
 	class symbol_list : public base::list<symbol>
@@ -730,10 +735,23 @@ namespace elf
 		void load(architecture &file);
 	};
 
+	class export_symbol : public base::export_symbol
+	{
+	public:
+		export_symbol(symbol *symbol);
+		virtual uint64_t address() const { return address_; }
+		virtual std::string name() const { return name_; }
+	private:
+		symbol *symbol_;
+		uint64_t address_;
+		std::string name_;
+	};
+
 	class export_list : public base::export_list
 	{
 	public:
 		using base::export_list::export_list;
+		void load(architecture &file);
 	};
 
 	class reloc

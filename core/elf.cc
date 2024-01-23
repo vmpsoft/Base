@@ -40,6 +40,7 @@ namespace elf
 		export_list_ = std::make_unique<export_list>();
 		reloc_list_ = std::make_unique<reloc_list>();
 		verneed_list_ = std::make_unique<verneed_list>();
+		export_list_ = std::make_unique<export_list>();
 	}
 
 	std::string architecture::name() const
@@ -163,6 +164,7 @@ namespace elf
 		reloc_list_->load(*this);
 		verneed_list_->load(*this);
 		import_list_->load(*this);
+		export_list_->load(*this);
 
 		if (shnum) {
 			string_table table;
@@ -559,12 +561,16 @@ namespace elf
 		if (file.address_size() == base::operand_size::dword) {
 			auto header = file.read<format::symbol_32_t>();
 			name_ = table.resolve(header.name);
+			value_ = header.value;
 			info_ = header.info;
+			shndx_ = header.shndx;
 		}
 		else {
 			auto header = file.read<format::symbol_64_t>();
 			name_ = table.resolve(header.name);
+			value_ = header.value;
 			info_ = header.info;
+			shndx_ = header.shndx;
 		}
 	}
 
@@ -656,7 +662,14 @@ namespace elf
 			auto header = file.read<format::reloc_32_t>();
 			address_ = header.offset;
 			type_ = (format::reloc_id_t)header.info;
-			symbol_ = (type_ == format::reloc_id_t::irelative) ? nullptr : &file.dynsymbols().item(header.info >> 8);
+			if (type_ == format::reloc_id_t::irelative)
+				symbol_ = nullptr;
+			else {
+				size_t ssym = header.info >> 8;
+				if (ssym >= file.dynsymbols().size())
+					throw std::runtime_error("Invalid symbol index");
+				symbol_ = &file.dynsymbols().item(ssym);
+			}
 			if (is_rela)
 				addend_ = file.read<uint32_t>();
 		}
@@ -664,7 +677,13 @@ namespace elf
 			auto header = file.read<format::reloc_64_t>();
 			address_ = header.offset;
 			type_ = (format::reloc_id_t)header.type;
-			symbol_ = (type_ == format::reloc_id_t::irelative_64) ? nullptr : &file.dynsymbols().item(header.ssym);
+			if (type_ == format::reloc_id_t::irelative_64)
+				symbol_ = nullptr;
+			else {
+				if (header.ssym >= file.dynsymbols().size())
+					throw std::runtime_error("Invalid symbol index");
+				symbol_ = &file.dynsymbols().item(header.ssym);
+			}
 			if (is_rela)
 				addend_ = file.read<uint64_t>();
 		}
@@ -686,13 +705,30 @@ namespace elf
 				if (!second || !file.seek_address(first->value()))
 					throw std::runtime_error("Invalid format");
 
-				bool is_rela = (pair.first == format::dynamic_id_t::rela);
+				bool is_rela;
+				switch (pair.first) {
+				case format::dynamic_id_t::jmprel:
+					{
+						auto *pltrel = file.commands().find_type(format::dynamic_id_t::pltrel);
+						if (!pltrel)
+							throw std::runtime_error("Invalid format");
+						is_rela = (pltrel->value() == format::dynamic_id_t::rela);
+					}
+					break;
+				case format::dynamic_id_t::rela:
+					is_rela = true;
+					break;
+				default:
+					is_rela = false;
+					break;
+				}
+
 				size_t entry_size = (file.address_size() == base::operand_size::dword) ? sizeof(format::reloc_32_t) : sizeof(format::reloc_64_t);
 				if (is_rela)
-					entry_size = (file.address_size() == base::operand_size::dword) ? sizeof(uint32_t) : sizeof(uint64_t);
+					entry_size += (file.address_size() == base::operand_size::dword) ? sizeof(uint32_t) : sizeof(uint64_t);
 
 				for (uint64_t i = 0; i < second->value(); i += entry_size) {
-					add<reloc>().load(file, is_rela);
+					add().load(file, is_rela);
 				}
 			}
 		}
@@ -780,6 +816,30 @@ namespace elf
 					break;
 
 				offset += next;
+			}
+		}
+	}
+
+	// export_symbol
+
+	export_symbol::export_symbol(symbol *symbol)
+		: symbol_(symbol)
+	{
+		if (symbol_) {
+			address_ = symbol_->value();
+			name_ = symbol_->name();
+		}
+	}
+
+	// export_list
+
+	void export_list::load(architecture &file)
+	{
+		for (auto &symbol : file.dynsymbols()) {
+			if (symbol.shndx() 
+				&& symbol.bind() == format::symbol_bind_id_t::global 
+				&& (symbol.type() == format::symbol_type_id_t::func || symbol.type() == format::symbol_type_id_t::object)) {
+				add<export_symbol>(&symbol);
 			}
 		}
 	}
