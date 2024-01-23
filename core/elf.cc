@@ -458,6 +458,9 @@ namespace elf
 			entsize_ = (uint32_t)header.entsize;
 			link_ = header.link;
 		}
+
+		if (address_)
+			parent_ = file.segments().find_address(address_);
 	}
 
 	// symbol_list
@@ -470,6 +473,8 @@ namespace elf
 	void symbol_list::load(architecture &file)
 	{
 		if (auto *symtab = file.sections().find_type(format::section_id_t::symtab)) {
+			if (symtab->link() >= file.sections().size())
+				throw std::runtime_error("Invalid section index");
 			auto &strtab = file.sections().item(symtab->link());
 			file.seek(strtab.physical_offset());
 			table_->load(file, (uint32_t)strtab.size());
@@ -728,7 +733,7 @@ namespace elf
 					entry_size += (file.address_size() == base::operand_size::dword) ? sizeof(uint32_t) : sizeof(uint64_t);
 
 				for (uint64_t i = 0; i < second->value(); i += entry_size) {
-					add().load(file, is_rela);
+					add<reloc>().load(file, is_rela);
 				}
 			}
 		}

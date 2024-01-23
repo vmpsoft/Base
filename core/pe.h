@@ -334,6 +334,34 @@ namespace pe
 			uint32_t                    rva_name_ordinals;
 		};
 
+		struct reloc_header_t
+		{
+			uint32_t        rva;
+			uint32_t        size;
+		};
+
+		enum class reloc_id_t : uint16_t
+		{
+			absolute         = 0,
+			high             = 1,
+			low              = 2,
+			highlow          = 3,
+			highadj          = 4,
+			mips_jmpaddr     = 5,
+			mips_jmpaddr16   = 9,
+			ia64_imm64       = 9,
+			dir64            = 10
+		};
+		
+		union reloc_value_t
+		{
+			uint16_t        value;
+			union {
+				uint16_t    offset : 12;
+				reloc_id_t  type : 4;
+			};
+		};
+
 		virtual bool check(base::stream &stream) const;
 		virtual std::unique_ptr<base::file> instance() const;
 	};
@@ -405,13 +433,18 @@ namespace pe
 		void load(architecture &file, size_t count, coff::string_table *string_table);
 	};
 
+	class section_list : public base::section_list
+	{
+	};
+
 	class import_function : public base::import_function
 	{
 	public:
 		import_function(import *owner, uint64_t address);
 		bool load(architecture &file);
-		virtual std::string name() const { return name_; }
 		virtual uint64_t address() const { return address_; }
+		virtual std::string name() const { return name_; }
+		virtual std::string version() const { return {}; }
 	private:
 		uint64_t address_;
 		std::string name_;
@@ -469,6 +502,23 @@ namespace pe
 		export_symbol &add(Args&&... params) { return base::export_list::add<export_symbol>(std::forward<Args>(params)...); }
 	};
 
+	class reloc : public base::reloc
+	{
+	public:
+		using base::reloc::reloc;
+		reloc(uint64_t address, format::reloc_id_t type) : address_(address), type_(type) {}
+		virtual uint64_t address() const { return address_; }
+	private:
+		uint64_t address_;
+		format::reloc_id_t type_;
+	};
+
+	class reloc_list : public base::reloc_list
+	{
+	public:
+		void load(architecture &file);
+	};
+
 	class architecture : public base::architecture
 	{
 	public:
@@ -482,8 +532,10 @@ namespace pe
 		virtual base::operand_size address_size() const { return address_size_; }
 		virtual directory_list &commands() const { return *directory_list_; }
 		virtual segment_list &segments() const { return *segment_list_; }
+		virtual section_list &sections() const { return *section_list_; }
 		virtual import_list &imports() const { return *import_list_; }
 		virtual export_list &exports() const { return *export_list_; }
+		virtual reloc_list &relocs() const { return *reloc_list_; }
 	private:
 		format::machine_id machine_;
 		uint64_t image_base_;
@@ -494,6 +546,8 @@ namespace pe
 		std::unique_ptr<segment_list> segment_list_;
 		std::unique_ptr<import_list> import_list_;
 		std::unique_ptr<export_list> export_list_;
+		std::unique_ptr<section_list> section_list_;
+		std::unique_ptr<reloc_list> reloc_list_;
 	};
 
 	class file : public base::file

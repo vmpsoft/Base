@@ -9,7 +9,7 @@ int main()
     switch (core.open(file_name)) {
     case base::status::success:
         {
-            const auto &file = *core.file();
+            auto &file = *core.file();
             std::cout << "Format: " << file.format() << "\n";
             for (auto &architecture : file) {
                 std::cout << "  Architecture: " << architecture.name() << "\n";
@@ -19,19 +19,31 @@ int main()
                 }
                 std::cout << "    Segments: (" << std::dec << architecture.segments().size() << ")\n";
                 for (auto &segment : architecture.segments()) {
-                    std::cout << "      Name: " << segment.name() << "  Address: " << std::hex << segment.address() << "  Size: " << std::hex << segment.size() << "\n";
+                    std::cout << "      Name: " << segment.name() << "  Address: " << segment.address() << "  Size: " << std::hex << segment.size() << "\n";
+                    for (auto &section : architecture.sections()) {
+                        if (section.parent() == &segment)
+                            std::cout << "        Name: " << section.name() << "  Address: " << std::hex << section.address() << "  Size: " << std::hex << section.size() << "\n";
+                    }
+                }
+                for (auto &section : architecture.sections()) {
+                    if (!section.parent())
+                        std::cout << "      Name: " << section.name() << "  Offset: " << std::hex << section.physical_offset() << "  Size: " << std::hex << section.physical_size() << "\n";
                 }
                 std::cout << "    Imports: (" << std::dec << architecture.imports().size() << ")\n";
                 for (auto &import : architecture.imports()) {
                     std::cout << "      Name: " << import.name() << " (" << std::dec << import.size() << ")\n";
                     for (auto &func : import) {
-                        std::cout << "        Address: " << std::hex << func.address() << "  Name: " << func.name() << "\n";
+                        std::cout << "        Address: " << std::hex << func.address() << "  Name: " << func.name();
+                        if (!func.version().empty())
+                            std::cout << "  (" << func.version() << ')';
+                        std::cout << "\n";
                     }
                 }
                 std::cout << "    Exports: (" << std::dec << architecture.exports().size() << ")\n";
                 for (auto &symbol : architecture.exports()) {
                     std::cout << "        Address: " << std::hex << symbol.address() << "  Name: " << symbol.name() << "\n";
                 }
+                std::cout << "    Relocations: (" << std::dec << architecture.relocs().size() << ")\n";
                 std::cout << "    Symbols: (" << std::dec << architecture.map_symbols().size() << ")\n";
                 for (auto &symbol : architecture.map_symbols()) {
                     std::cout << "        Address: " << std::hex << symbol.address() << "  Name: " << symbol.name() << "\n";

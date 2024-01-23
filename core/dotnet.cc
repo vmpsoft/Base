@@ -67,6 +67,7 @@ namespace net
 		meta_data_ = std::make_unique<meta_data>(this);
 		import_list_ = std::make_unique<import_list>(this);
 		export_list_ = std::make_unique<export_list>();
+		reloc_list_ = std::make_unique<reloc_list>();
 	}
 
 	base::status architecture::load() 
@@ -81,6 +82,12 @@ namespace net
 
 		meta_data_->load(*this, header.meta_data.rva + image_base());
 		import_list_->load(*this);
+
+		if (header.vtable_fixups.rva) {
+			if (!seek_address(header.vtable_fixups.rva + image_base()))
+				throw std::runtime_error("Format error");
+			reloc_list_->load(*this, header.vtable_fixups.size / sizeof(format::vtable_fixup_t));
+		}
 
 		{
 			auto *table = commands().table(token_type_id::method_def);
@@ -188,6 +195,35 @@ namespace net
 				it->second->add(ref.id(), ref.import_name());
 		}
 	}
+
+	// reloc_list
+
+	void reloc_list::load(architecture &file, size_t count)
+	{
+		for (size_t i = 0; i < count; i++) {
+			auto header = file.read<format::vtable_fixup_t>();
+			uint64_t pos = file.tell();
+			uint64_t address = header.rva + file.image_base();
+			if (!file.seek_address(address))
+				throw std::runtime_error("Format error");
+
+			for (size_t j = 0; j < header.count; j++) {
+				auto *token = file.commands().find(file.read<uint32_t>());
+				if (!token)
+					throw std::runtime_error("Format error");
+				add<reloc>(address, token);
+
+				address += sizeof(uint32_t);
+				if (header.type.x64) {
+					file.read<uint32_t>();
+					address += sizeof(uint32_t);
+				}
+			}
+			file.seek(pos);
+		}
+	}
+
+	// meta_data
 
 	void meta_data::load(architecture &file, uint64_t address)
 	{

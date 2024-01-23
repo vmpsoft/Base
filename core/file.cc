@@ -91,7 +91,7 @@ namespace base
 
 	bool architecture::seek_address(uint64_t address) const
 	{
-		if (auto segment = segments().find_mapped(address)) {
+		if (auto segment = segments().find_address(address, true)) {
 			if (segment->physical_size() > address - segment->address()) {
 				seek(segment->physical_offset() + address - segment->address());
 				return true;
@@ -128,10 +128,13 @@ namespace base
 
 	// segment_list
 
-	segment *segment_list::find_mapped(uint64_t address) const
+	segment *segment_list::find_address(uint64_t address, bool mapped) const
 	{
 		for (auto &item : *this) {
-			if (item.memory_type().mapped && address >= item.address() && address < item.address() + item.size())
+			if (mapped && !item.memory_type().mapped)
+				continue;
+
+			if (address >= item.address() && address < item.address() + item.size())
 				return &item;
 		}
 		return nullptr;

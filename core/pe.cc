@@ -324,6 +324,36 @@ namespace pe
 			item.load(file, (it != name_map.end()) ? it->second + file.image_base() : 0, (item.address() >= dir->address() && item.address() < dir->address() + dir->size()));
 		}
 	}
+
+	// reloc_list
+
+	void reloc_list::load(architecture &file)
+	{
+		auto *dir = file.commands().find_type(format::directory_id::basereloc);
+		if (!dir)
+			return;
+
+		if (!file.seek_address(dir->address()))
+			throw std::runtime_error("Format error");
+
+		for (uint32_t i = 0; i < dir->size();) {
+			auto header = file.read<format::reloc_header_t>();
+			if (!header.size)
+				break;
+
+			if (header.size < sizeof(format::reloc_header_t) || (header.size & 1))
+				throw std::runtime_error("Invalid size of the base relocation block");
+
+			size_t count = (header.size - sizeof(format::reloc_header_t)) / sizeof(format::reloc_value_t);
+			for (size_t block = 0; block < count; block++) {
+				auto value = file.read<format::reloc_value_t>();
+				if (value.type != format::reloc_id_t::absolute) {
+					auto type = value.type;
+					add<reloc>(header.rva + file.image_base() + value.offset, type);
+				}
+			}
+		}
+	}
 	
 	// architecture
 
@@ -334,9 +364,11 @@ namespace pe
 		address_size_ = base::operand_size::dword;
 		subsystem_ = format::subsystem_id::unknown;
 		directory_list_ = std::make_unique<directory_list>(this);
-		segment_list_ = std::make_unique<pe::segment_list>(this);
-		import_list_ = std::make_unique<pe::import_list>(this);
-		export_list_ = std::make_unique<pe::export_list>();
+		segment_list_ = std::make_unique<segment_list>(this);
+		import_list_ = std::make_unique<import_list>(this);
+		export_list_ = std::make_unique<export_list>();
+		section_list_ = std::make_unique<section_list>();
+		reloc_list_ = std::make_unique<reloc_list>();
 	}
 
 	architecture::architecture(file *owner, const architecture &src)
@@ -455,6 +487,7 @@ namespace pe
 
 		import_list_->load(*this);
 		export_list_->load(*this);
+		reloc_list_->load(*this);
 
 		if (file_header.ptr_symbols) {
 			seek(file_header.ptr_symbols);

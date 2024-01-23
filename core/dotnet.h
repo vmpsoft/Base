@@ -146,6 +146,22 @@ namespace net
 			tagged_object = 0x51,
 			_enum = 0x55
 		};
+
+		struct vtable_type_t
+		{
+			uint16_t    x32 : 1;
+			uint16_t    x64 : 1;
+			uint16_t    from_unmanaged : 1;
+			uint16_t    from_unmanaged_retain_appdomain : 1;
+			uint16_t    call_most_derived : 1;
+		};
+
+		struct vtable_fixup_t
+		{
+			uint32_t       rva;
+			uint16_t       count;
+			vtable_type_t  type;
+		};
 	};
 #pragma pack(pop)
 
@@ -231,7 +247,7 @@ namespace net
 		};
 		token_value_t() = default;
 		token_value_t(token_type_id type_, uint32_t value_) : type(type_), value(value_) {}
-		token_value_t(uint32_t id_) : id(id) {}
+		token_value_t(uint32_t id_) : id(id_) {}
 	};
 
 	struct token_encoding_t
@@ -1014,8 +1030,9 @@ namespace net
 	{
 	public:
 		import_function(import *owner, uint32_t token, const std::string &name);
-		virtual std::string name() const { return name_; }
 		virtual uint64_t address() const { return token_; }
+		virtual std::string name() const { return name_; }
+		virtual std::string version() const { return {}; }
 	private:
 		uint32_t token_;
 		std::string name_;
@@ -1048,8 +1065,25 @@ namespace net
 		using base::export_list::export_list;
 	};
 
+	class reloc : public base::reloc
+	{
+	public:
+		reloc(uint64_t address, token *token) : address_(address), token_(token) {}
+		virtual uint64_t address() const { return address_; }
+	private:
+		uint64_t address_;
+		token *token_;
+	};
+
+	class reloc_list : public base::reloc_list_t<reloc>
+	{
+	public:
+		void load(architecture &file, size_t count);
+	};
+
 	using segment = pe::segment;
 	using segment_list = pe::segment_list;
+	using section_list = pe::section_list;
 
 	class architecture : public base::architecture
 	{
@@ -1061,6 +1095,8 @@ namespace net
 		virtual base::operand_size address_size() const { return file_.address_size(); }
 		virtual meta_data &commands() const { return *meta_data_; }
 		virtual segment_list &segments() const { return file_.segments(); }
+		virtual section_list &sections() const { return file_.sections(); }
+		virtual reloc_list &relocs() const { return *reloc_list_; }
 		virtual import_list &imports() const { return *import_list_; }
 		virtual export_list &exports() const { return *export_list_; }
 	private:
@@ -1068,5 +1104,6 @@ namespace net
 		std::unique_ptr<meta_data> meta_data_;
 		std::unique_ptr<import_list> import_list_;
 		std::unique_ptr<export_list> export_list_;
+		std::unique_ptr<reloc_list> reloc_list_;
 	};
 }

@@ -640,15 +640,16 @@ namespace elf
 		std::string resolve(uint32_t offset) const;
 	};
 
-	class section
+	class section : public base::section
 	{
 	public:
 		void load(architecture &file, const string_table &table);
-		uint64_t address() const { return address_; }
-		uint64_t size() const { return size_; }
-		uint32_t physical_offset() const { return physical_offset_; }
-		uint32_t physical_size() const { return size_; }
-		std::string name() const { return name_; }
+		virtual uint64_t address() const { return address_; }
+		virtual uint64_t size() const { return size_; }
+		virtual uint32_t physical_offset() const { return physical_offset_; }
+		virtual uint32_t physical_size() const { return size_; }
+		virtual std::string name() const { return name_; }
+		virtual segment *parent() const { return parent_; }
 		format::section_id_t type() const { return type_; }
 		uint32_t entsize() const { return entsize_; }
 		uint32_t link() const { return link_; }
@@ -660,9 +661,11 @@ namespace elf
 		uint32_t entsize_;
 		uint32_t link_;
 		std::string name_;
+		segment *parent_;
+
 	};
 
-	class section_list : public base::list<section>
+	class section_list : public base::section_list_t<section>
 	{
 	public:
 		void load(architecture &file, size_t count, const string_table &table);
@@ -708,8 +711,9 @@ namespace elf
 	{
 	public:
 		import_function(import *owner, uint64_t address, symbol *symbol, std::string &version);
-		virtual std::string name() const { return name_; }
 		virtual uint64_t address() const { return address_; }
+		virtual std::string name() const { return name_; }
+		virtual std::string version() const { return version_; }
 	private:
 		uint64_t address_;
 		std::string name_;
@@ -754,11 +758,11 @@ namespace elf
 		void load(architecture &file);
 	};
 
-	class reloc
+	class reloc : public base::reloc
 	{
 	public:
 		void load(architecture &file, bool is_rela);
-		uint64_t address() const { return address_; }
+		virtual uint64_t address() const { return address_; }
 		format::reloc_id_t type() const { return type_; }
 		symbol *symbol() const { return symbol_; }
 	private:
@@ -768,7 +772,7 @@ namespace elf
 		uint64_t addend_;
 	};
 
-	class reloc_list : public base::list<reloc>
+	class reloc_list : public base::reloc_list_t<reloc>
 	{
 	public:
 		void load(architecture &file);

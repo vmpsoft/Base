@@ -167,10 +167,12 @@ namespace base
 	class file;
 	class load_command_list;
 	class segment_list;
+	class section_list;
 	class import_list;
 	class import;
 	class map_symbol_list;
 	class export_list;
+	class reloc_list;
 
 	class architecture
 	{
@@ -188,11 +190,13 @@ namespace base
 		uint64_t size() const { return size_; }
 		map_symbol_list &map_symbols() const { return *map_symbol_list_; }
 		virtual std::string name() const = 0;
+		virtual operand_size address_size() const = 0;
 		virtual load_command_list &commands() const = 0;
 		virtual segment_list &segments() const = 0;
+		virtual section_list &sections() const = 0;
 		virtual import_list &imports() const = 0;
 		virtual export_list &exports() const = 0;
-		virtual operand_size address_size() const = 0;
+		virtual reloc_list &relocs() const = 0;
 	private:
 		file *owner_;
 		uint64_t offset_;
@@ -286,7 +290,7 @@ namespace base
 	{
 	public:
 		segment_list(architecture *owner) : owner_(owner) {}
-		base::segment *find_mapped(uint64_t address) const;
+		base::segment *find_address(uint64_t address, bool mapped = false) const;
 	private:
 		architecture *owner_;
 	};
@@ -304,14 +308,43 @@ namespace base
 		const_iterator end() const { return list::end(); }
 		template <typename... Args>
 		T &add(Args&&... params) { return base::segment_list::add<T>(this, std::forward<Args>(params)...); }
+		T *find_address(uint64_t address, bool mapped = false) const { return static_cast<T *>(segment_list::find_address(address, mapped)); }
+	};
+
+	class section
+	{
+	public:
+		virtual uint64_t address() const = 0;
+		virtual uint64_t size() const = 0;
+		virtual uint32_t physical_offset() const = 0;
+		virtual uint32_t physical_size() const = 0;
+		virtual std::string name() const = 0;
+		virtual segment *parent() const = 0;
+	};
+
+	class section_list : public list<section>
+	{
+	};
+
+	template <typename T>
+	class section_list_t : public section_list
+	{
+	public:
+		using iterator = _CastIterator<list::iterator, T>;
+		using const_iterator = _CastIterator<list::const_iterator, T>;
+		iterator begin() { return list::begin(); }
+		iterator end() { return list::end(); }
+		const_iterator begin() const { return list::begin(); }
+		const_iterator end() const { return list::end(); }
 	};
 
 	class import_function
 	{
 	public:
 		import_function(import *owner) : owner_(owner) {}
-		virtual std::string name() const = 0;
 		virtual uint64_t address() const = 0;
+		virtual std::string name() const = 0;
+		virtual std::string version() const = 0;
 	private:
 		import *owner_;
 	};
@@ -351,7 +384,28 @@ namespace base
 
 	class export_list : public base::list<export_symbol>
 	{
+	};
 
+	class reloc
+	{
+	public:
+		virtual uint64_t address() const = 0;
+	};
+
+	class reloc_list : public base::list<reloc>
+	{
+	};
+
+	template <typename T>
+	class reloc_list_t : public reloc_list
+	{
+	public:
+		using iterator = _CastIterator<list::iterator, T>;
+		using const_iterator = _CastIterator<list::const_iterator, T>;
+		iterator begin() { return list::begin(); }
+		iterator end() { return list::end(); }
+		const_iterator begin() const { return list::begin(); }
+		const_iterator end() const { return list::end(); }
 	};
 
 	enum class symbol_type_id
