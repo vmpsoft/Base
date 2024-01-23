@@ -334,6 +334,14 @@ namespace base
 		architecture *owner_;
 	};
 
+	template <typename T>
+	class import_list_t : public import_list
+	{
+	public:
+		using base::import_list::import_list;
+		T *find_name(const std::string &name) const { return static_cast<T *>(import_list::find_name(name)); }
+	};
+
 	class export_symbol
 	{
 	public:

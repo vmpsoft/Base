@@ -442,12 +442,46 @@ namespace elf
 			uint64_t      entsize;
 		};
 
+		enum class symbol_type_id_t : uint8_t
+		{
+			notype    = 0,
+			object    = 1,
+			func      = 2,
+			section   = 3,
+			file      = 4,
+			common    = 5,
+			tls       = 6,
+			loos      = 7,
+			hios      = 8,
+			gnu_ifunc = 10,
+			loproc    = 13,
+			hiproc    = 15
+		};
+
+		enum class symbol_bind_id_t : uint8_t
+		{
+			local      = 0,
+			global     = 1,
+			weak       = 2,
+			gnu_unique = 10,
+			loos       = 10,
+			hios       = 12,
+			loproc     = 13,
+			hiproc     = 15
+		};
+
+		struct symbol_info_t
+		{
+			symbol_type_id_t  type : 4;
+			symbol_bind_id_t  bind : 4;
+		};
+
 		struct symbol_32_t
 		{
 			uint32_t  name;
 			uint32_t  value;
 			uint32_t  size;
-			uint8_t   info;
+			symbol_info_t   info;
 			uint8_t   other;
 			uint16_t  shndx;
 		};
@@ -455,7 +489,7 @@ namespace elf
 		struct symbol_64_t
 		{
 			uint32_t  name;
-			uint8_t   info;
+			symbol_info_t   info;
 			uint8_t   other;
 			uint16_t  shndx;
 			uint64_t  value;
@@ -475,6 +509,7 @@ namespace elf
 			relative = 8,
 			gotoff = 9,
 			gotpc = 10,
+			irelative_64 = 37,
 			irelative = 42
 		};
 
@@ -484,10 +519,47 @@ namespace elf
 			uint32_t info;
 		};
 
-		struct reloc_64_t {
+		struct reloc_64_t
+		{
 			uint64_t offset;
 			uint32_t type;
 			uint32_t ssym;
+		};
+
+		struct verneed_32_t
+		{
+			uint16_t	version;
+			uint16_t	cnt;
+			uint32_t	file;
+			uint32_t	aux;
+			uint32_t	next;
+		};
+
+		struct verneed_64_t
+		{
+			uint16_t	version;
+			uint16_t	cnt;
+			uint32_t	file;
+			uint32_t	aux;
+			uint32_t	next;
+		};
+
+		struct vernaux_32_t
+		{
+			uint32_t	hash;
+			uint16_t	flags;
+			uint16_t	other;
+			uint32_t	name;
+			uint32_t	next;
+		};
+
+		struct vernaux_64_t
+		{
+			uint32_t	hash;
+			uint16_t	flags;
+			uint16_t	other;
+			uint32_t	name;
+			uint32_t	next;
 		};
 
 		virtual bool check(base::stream &stream) const;
@@ -601,16 +673,24 @@ namespace elf
 	public:
 		void load(architecture &file, const string_table &table);
 		std::string name() const { return name_; }
+		uint16_t version() const { return version_; }
+		format::symbol_type_id_t type() const { return info_.type; }
+		format::symbol_bind_id_t bind() const { return info_.bind; }
+		void set_version(uint16_t version) { version_ = version; }
 	private:
 		std::string name_;
+		format::symbol_info_t info_;
+		uint16_t version_;
 	};
 
 	class symbol_list : public base::list<symbol>
 	{
 	public:
+		symbol_list();
 		void load(architecture &file);
+		string_table &table() const { return *table_; }
 	protected:
-		string_table table_;
+		std::unique_ptr<string_table> table_;
 	};
 
 	class dynamic_symbol_list : public symbol_list
@@ -622,13 +702,14 @@ namespace elf
 	class import_function : public base::import_function
 	{
 	public:
-		import_function(import *owner, uint64_t address, symbol *symbol);
+		import_function(import *owner, uint64_t address, symbol *symbol, std::string &version);
 		virtual std::string name() const { return name_; }
 		virtual uint64_t address() const { return address_; }
 	private:
 		uint64_t address_;
 		std::string name_;
 		symbol *symbol_;
+		std::string version_;
 	};
 
 	class import : public base::import
@@ -640,10 +721,10 @@ namespace elf
 		std::string name_;
 	};
 
-	class import_list : public base::import_list
+	class import_list : public base::import_list_t<import>
 	{
 	public:
-		using base::import_list::import_list;
+		using base::import_list_t<import>::import_list_t;
 		template <typename... Args>
 		import &add(Args&&... params) { return base::import_list::add<import>(this, std::forward<Args>(params)...); }
 		void load(architecture &file);
@@ -675,12 +756,43 @@ namespace elf
 		void load(architecture &file);
 	};
 
+	class vernaux
+	{
+	public:
+		uint64_t load(architecture &file);
+		std::string name() const { return name_; }
+		uint16_t version() const { return version_; }
+	private:
+		uint32_t hash_;
+		uint16_t flags_;
+		uint16_t version_;
+		std::string name_;
+	};
+
+	class verneed : public base::list<vernaux>
+	{
+	public:
+		uint64_t load(architecture &file);
+		uint16_t version() const { return version_; }
+		std::string file() const { return file_; }
+	private:
+		uint16_t version_;
+		std::string file_;
+	};
+
+	class verneed_list : public base::list<verneed>
+	{
+	public:
+		void load(architecture &file);
+	};
+
 	class architecture : public base::architecture
 	{
 	public:
 		architecture(file *owner, uint64_t offset, uint64_t size);
 		base::status load();
 		dynamic_symbol_list &dynsymbols() const { return *dynamic_symbol_list_; }
+		verneed_list &verneeds() const { return *verneed_list_; }
 		virtual std::string name() const;
 		virtual base::operand_size address_size() const { return address_size_; }
 		virtual dynamic_command_list &commands() const { return *load_command_list_; }
@@ -702,6 +814,7 @@ namespace elf
 		std::unique_ptr<import_list> import_list_;
 		std::unique_ptr<export_list> export_list_;
 		std::unique_ptr<reloc_list> reloc_list_;
+		std::unique_ptr<verneed_list> verneed_list_;
 	};
 
 	class file : public base::file

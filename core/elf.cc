@@ -39,6 +39,7 @@ namespace elf
 		import_list_ = std::make_unique<import_list>(this);
 		export_list_ = std::make_unique<export_list>();
 		reloc_list_ = std::make_unique<reloc_list>();
+		verneed_list_ = std::make_unique<verneed_list>();
 	}
 
 	std::string architecture::name() const
@@ -160,6 +161,7 @@ namespace elf
 		load_command_list_->load(*this);
 		dynamic_symbol_list_->load(*this);
 		reloc_list_->load(*this);
+		verneed_list_->load(*this);
 		import_list_->load(*this);
 
 		if (shnum) {
@@ -458,16 +460,21 @@ namespace elf
 
 	// symbol_list
 
+	symbol_list::symbol_list()
+	{
+		table_ = std::make_unique<string_table>();
+	}
+	
 	void symbol_list::load(architecture &file)
 	{
 		if (auto *symtab = file.sections().find_type(format::section_id_t::symtab)) {
 			auto &strtab = file.sections().item(symtab->link());
 			file.seek(strtab.physical_offset());
-			table_.load(file, (uint32_t)strtab.size());
+			table_->load(file, (uint32_t)strtab.size());
 
 			file.seek(symtab->physical_offset());
 			for (uint64_t i = 0; i < symtab->size(); i += symtab->entsize()) {
-				add().load(file, table_);
+				add().load(file, *table_);
 			}
 		}
 	};
@@ -480,9 +487,9 @@ namespace elf
 			auto *strsz = file.commands().find_type(format::dynamic_id_t::strsz);
 			if (!strsz || !file.seek_address(strtab->value()))
 				throw std::runtime_error("Invalid format");
-			table_.load(file, (uint32_t)strtab->value());
+			table_->load(file, (uint32_t)strtab->value());
 			for (auto &item : file.commands()) {
-				item.load(table_);
+				item.load(*table_);
 			}
 		}
 
@@ -532,7 +539,15 @@ namespace elf
 				throw std::runtime_error("Invalid format");
 
 			for (uint64_t i = 0; i < size; i += entry_size) {
-				add().load(file, table_);
+				add().load(file, *table_);
+			}
+
+			if (auto *versym = file.commands().find_type(format::dynamic_id_t::versym)) {
+				if (!file.seek_address(versym->value()))
+					throw std::runtime_error("Invalid format");
+				for (auto &item : *this) {
+					item.set_version(file.read<uint16_t>());
+				}
 			}
 		}
 	}
@@ -544,16 +559,19 @@ namespace elf
 		if (file.address_size() == base::operand_size::dword) {
 			auto header = file.read<format::symbol_32_t>();
 			name_ = table.resolve(header.name);
+			info_ = header.info;
 		}
 		else {
 			auto header = file.read<format::symbol_64_t>();
+			name_ = table.resolve(header.name);
+			info_ = header.info;
 		}
 	}
 
 	// import_function
 
-	import_function::import_function(import *owner, uint64_t address, symbol *symbol)
-		: base::import_function(owner), address_(address), symbol_(symbol)
+	import_function::import_function(import *owner, uint64_t address, symbol *symbol, std::string &version)
+		: base::import_function(owner), address_(address), symbol_(symbol), version_(version)
 	{
 		if (symbol_)
 			name_ = symbol_->name();
@@ -591,23 +609,41 @@ namespace elf
 				symbol_map[reloc.symbol()].push_back(reloc.address());
 		}
 
-		import *empty_import = nullptr;
+		std::map<uint16_t, std::pair<std::string, import *>> version_map;
+		for (auto &verneed : file.verneeds()) {
+			if (auto *item = find_name(verneed.file())) {
+				for (auto &vernaux : verneed) {
+					version_map[vernaux.version()] = { vernaux.name(), item };
+				}
+			}
+		}
+
+		import *empty = nullptr;
 		for (auto &symbol : file.dynsymbols()) {
-			if (symbol.name().empty())
+			if (symbol.bind() == format::symbol_bind_id_t::local)
 				continue;
 
-			if (!empty_import)
-				empty_import = &add("");
-
-			std::vector<uint64_t> address_list;
 			auto it = symbol_map.find(&symbol);
-			if (it != symbol_map.end())
-				address_list = it->second;
-			else
-				address_list.push_back(0);
+			if (it == symbol_map.end())
+				continue;
 
-			for (auto address : address_list) {
-				empty_import->add<import_function>(empty_import, address, &symbol);
+			import *item = nullptr;
+			std::string version;
+			if (symbol.version() > 1) {
+				auto it = version_map.find(symbol.version());
+				if (it != version_map.end()) {
+					item = it->second.second;
+					version = it->second.first;
+				}
+			}
+			if (!item) {
+				if (!empty)
+					empty = &add("");
+				item = empty;
+			}
+
+			for (auto address : it->second) {
+				item->add<import_function>(item, address, &symbol, version);
 			}
 		}
 	}
@@ -628,7 +664,7 @@ namespace elf
 			auto header = file.read<format::reloc_64_t>();
 			address_ = header.offset;
 			type_ = (format::reloc_id_t)header.type;
-			symbol_ = (type_ == format::reloc_id_t::irelative) ? nullptr : &file.dynsymbols().item(header.ssym);
+			symbol_ = (type_ == format::reloc_id_t::irelative_64) ? nullptr : &file.dynsymbols().item(header.ssym);
 			if (is_rela)
 				addend_ = file.read<uint64_t>();
 		}
@@ -638,13 +674,7 @@ namespace elf
 
 	void reloc_list::load(architecture &file)
 	{
-		struct dynamic_pair_t
-		{
-			format::dynamic_id_t first;
-			format::dynamic_id_t second;
-		};
-
-		const std::array<dynamic_pair_t, 3> pairs{ {
+		const std::array<std::pair<format::dynamic_id_t, format::dynamic_id_t>, 3> pairs{ {
 			{ format::dynamic_id_t::rel, format::dynamic_id_t::relsz },
 			{ format::dynamic_id_t::rela, format::dynamic_id_t::relasz },
 			{ format::dynamic_id_t::jmprel, format::dynamic_id_t::pltrelsz }
@@ -653,10 +683,103 @@ namespace elf
 		for (auto &pair : pairs) {
 			if (auto *first = file.commands().find_type(pair.first)) {
 				auto *second = file.commands().find_type(pair.second);
-				if (!second || !file.seek_address(second->value()))
+				if (!second || !file.seek_address(first->value()))
 					throw std::runtime_error("Invalid format");
 
-				add<reloc>().load(file, (pair.first == format::dynamic_id_t::rela));
+				bool is_rela = (pair.first == format::dynamic_id_t::rela);
+				size_t entry_size = (file.address_size() == base::operand_size::dword) ? sizeof(format::reloc_32_t) : sizeof(format::reloc_64_t);
+				if (is_rela)
+					entry_size = (file.address_size() == base::operand_size::dword) ? sizeof(uint32_t) : sizeof(uint64_t);
+
+				for (uint64_t i = 0; i < second->value(); i += entry_size) {
+					add<reloc>().load(file, is_rela);
+				}
+			}
+		}
+	}
+
+	// vernaux
+
+	uint64_t vernaux::load(architecture &file)
+	{
+		uint64_t next;
+		if (file.address_size() == base::operand_size::dword) {
+			auto header = file.read<format::vernaux_32_t>();
+			hash_ = header.hash;
+			flags_ = header.flags;
+			version_ = header.other;
+			name_ = file.dynsymbols().table().resolve(header.name);
+			next = header.next;
+		}
+		else {
+			auto header = file.read<format::vernaux_64_t>();
+			hash_ = header.hash;
+			flags_ = header.flags;
+			version_ = header.other;
+			name_ = file.dynsymbols().table().resolve(header.name);
+			next = header.next;
+		}
+		return next;
+	}
+
+	// verneed
+
+	uint64_t verneed::load(architecture &file)
+	{
+		uint64_t pos = file.tell();
+		size_t count;
+		uint64_t offset;
+		uint64_t next;
+		if (file.address_size() == base::operand_size::dword) {
+			auto header = file.read<format::verneed_32_t>();
+			version_ = header.version;
+			file_ = file.dynsymbols().table().resolve(header.file);
+			count = header.cnt;
+			offset = header.aux;
+			next = header.next;
+		}
+		else {
+			auto header = file.read<format::verneed_64_t>();
+			version_ = header.version;
+			file_ = file.dynsymbols().table().resolve(header.file);
+			count = header.cnt;
+			offset = header.aux;
+			next = header.next;
+		}
+
+		for (size_t i = 0; i < count; i++) {
+			file.seek(pos + offset);
+			auto &item = add();
+			auto item_next = item.load(file);
+			if (!item_next)
+				break;
+
+			offset += item_next;
+		}
+
+		return next;
+	}
+
+	// verneed_list
+
+	void verneed_list::load(architecture &file)
+	{
+		if (auto *verneed = file.commands().find_type(format::dynamic_id_t::verneed)) {
+			auto *verneednum = file.commands().find_type(format::dynamic_id_t::verneednum);
+			if (!verneednum || !file.seek_address(verneed->value()))
+				throw std::runtime_error("Invalid format");
+
+			uint64_t pos = file.tell();
+			uint64_t offset = 0;
+			for (uint64_t i = 0; i < verneednum->value(); i++) {
+				file.seek(pos + offset);
+
+				auto &item = add();
+				uint64_t next = item.load(file);
+				if (!next)
+					break;
+
+				offset += next;
 			}
 		}
 	}
