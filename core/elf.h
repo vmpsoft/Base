@@ -7,7 +7,7 @@ namespace elf
 	public:
 		static constexpr uint32_t elf_signature = 0x464c457f;
 
-		enum class class_type_id : uint8_t
+		enum class class_id_t : uint8_t
 		{
 			none,
 			x32,
@@ -191,7 +191,7 @@ namespace elf
 		struct ident_t
 		{
 			uint32_t       signature;
-			class_type_id  eclass;
+			class_id_t  eclass;
 			uint8_t        data;
 			uint8_t        version;
 			osabi_id_t     os_abi;
@@ -208,7 +208,7 @@ namespace elf
 			core = 4
 		};
 
-		struct file_header_32_t
+		struct header_32_t
 		{
 			ident_t        ident;
 			type_id_t      type;
@@ -226,7 +226,7 @@ namespace elf
 			uint16_t       shstrndx;
 		};
 
-		struct file_header_64_t
+		struct header_64_t
 		{
 			ident_t        ident;
 			type_id_t      type;
@@ -244,7 +244,7 @@ namespace elf
 			uint16_t       shstrndx;
 		};
 
-		enum class segment_type_id_t : uint32_t
+		enum class segment_id_t : uint32_t
 		{
 			null = 0,
 			load = 1,
@@ -267,31 +267,39 @@ namespace elf
 			pax_flags = 0x65041580
 		};
 
-		struct segment_header_32_t
+		struct segment_flags_t
 		{
-			segment_type_id_t  type;
-			uint32_t  offset;
-			uint32_t  vaddr;
-			uint32_t  paddr;
-			uint32_t  filesz;
-			uint32_t  memsz;
-			uint32_t  flags;
-			uint32_t  align;
+			uint32_t execute  : 1;
+			uint32_t write    : 1;
+			uint32_t read     : 1;
+			uint32_t reserved : 29;
 		};
 
-		struct segment_header_64_t
+		struct segment_32_t
 		{
-			segment_type_id_t  type;
-			uint32_t  flags;
-			uint64_t  offset;
-			uint64_t  vaddr;
-			uint64_t  paddr;
-			uint64_t  filesz;
-			uint64_t  memsz;
-			uint64_t  align;
+			segment_id_t     type;
+			uint32_t         offset;
+			uint32_t         vaddr;
+			uint32_t         paddr;
+			uint32_t         filesz;
+			uint32_t         memsz;
+			segment_flags_t  flags;
+			uint32_t         align;
 		};
 
-		enum directory_type_id_t : uint32_t
+		struct segment_64_t
+		{
+			segment_id_t     type;
+			segment_flags_t  flags;
+			uint64_t         offset;
+			uint64_t         vaddr;
+			uint64_t         paddr;
+			uint64_t         filesz;
+			uint64_t         memsz;
+			uint64_t         align;
+		};
+
+		enum dynamic_id_t : uint32_t
 		{
 			null         = 0,
 			needed       = 1,
@@ -343,9 +351,9 @@ namespace elf
 			verneednum   = 0x6fffffff,
 		};
 
-		struct dyn_header_32_t
+		struct dynamic_32_t
 		{
-			directory_type_id_t tag;
+			dynamic_id_t tag;
 			union
 			{
 				uint32_t val;
@@ -353,9 +361,9 @@ namespace elf
 			};
 		};
 
-		struct dyn_header_64_t
+		struct dynamic_64_t
 		{
-			directory_type_id_t tag;
+			dynamic_id_t tag;
 			uint32_t pad;
 			union
 			{
@@ -364,60 +372,306 @@ namespace elf
 			};
 		};
 
+		enum class section_id_t : uint32_t
+		{
+			null                = 0,
+			progbits            = 1,
+			symtab              = 2,
+			strtab              = 3,
+			rela                = 4,
+			hash                = 5,
+			dynamic             = 6,
+			note                = 7,
+			nobits              = 8,
+			rel                 = 9,
+			shlib               = 10,
+			dynsym              = 11,
+			init_array          = 14,
+			fini_array          = 15,
+			preinit_array       = 16,
+			group               = 17,
+			symtab_shndx        = 18,
+			loos                = 0x60000000,
+			gnu_attributes      = 0x6ffffff5,
+			gnu_hash            = 0x6ffffff6,
+			gnu_verdef          = 0x6ffffffd,
+			gnu_verneed         = 0x6ffffffe,
+			gnu_versym          = 0x6fffffff,
+			hios                = 0x6fffffff,
+			loproc              = 0x70000000,
+			arm_exidx           = 0x70000001u,
+			arm_preemptmap      = 0x70000002u,
+			arm_attributes      = 0x70000003u,
+			arm_debugoverlay    = 0x70000004u,
+			arm_overlaysection  = 0x70000005u,
+			hex_ordered         = 0x70000000,
+			x86_64_unwind       = 0x70000001,
+			mips_reginfo        = 0x70000006,
+			mips_options        = 0x7000000d,
+			mips_abiflags       = 0x7000002a,
+			hiproc              = 0x7fffffff,
+			louser              = 0x80000000,
+			hiuser              = 0xffffffff
+		};
+
+		struct section_32_t
+		{
+			uint32_t      name;
+			section_id_t  type;
+			uint32_t      flags;
+			uint32_t      addr;
+			uint32_t      offset;
+			uint32_t      size;
+			uint32_t      link;
+			uint32_t      info;
+			uint32_t      addralign;
+			uint32_t      entsize;
+		};
+
+		struct section_64_t
+		{
+			uint32_t      name;
+			section_id_t  type;
+			uint64_t      flags;
+			uint64_t      addr;
+			uint64_t      offset;
+			uint64_t      size;
+			uint32_t      link;
+			uint32_t      info;
+			uint64_t      addralign;
+			uint64_t      entsize;
+		};
+
+		struct symbol_32_t
+		{
+			uint32_t  name;
+			uint32_t  value;
+			uint32_t  size;
+			uint8_t   info;
+			uint8_t   other;
+			uint16_t  shndx;
+		};
+
+		struct symbol_64_t
+		{
+			uint32_t  name;
+			uint8_t   info;
+			uint8_t   other;
+			uint16_t  shndx;
+			uint64_t  value;
+			uint64_t  size;
+		};
+
+		enum class reloc_id_t : uint8_t
+		{
+			none = 0,
+			r32 = 1,
+			pc32 = 2,
+			got32 = 3,
+			plt32 = 4,
+			copy = 5,
+			glob_dat = 6,
+			jmp_slot = 7,
+			relative = 8,
+			gotoff = 9,
+			gotpc = 10,
+			irelative = 42
+		};
+
+		struct reloc_32_t
+		{
+			uint32_t offset;
+			uint32_t info;
+		};
+
+		struct reloc_64_t {
+			uint64_t offset;
+			uint32_t type;
+			uint32_t ssym;
+		};
+
 		virtual bool check(base::stream &stream) const;
 		virtual std::unique_ptr<base::file> instance() const;
 	};
 
 	class file;
 	class architecture;
+	class segment_list;
+	class string_table;
+	class import_list;
+	class import;
+	class symbol;
 
 	class segment : public base::segment
 	{
 	public:
 		using base::segment::segment;
+		segment(segment_list *owner, const segment &src);
+		std::unique_ptr<segment> clone(segment_list *owner) const;
 		void load(architecture &file);
-		format::segment_type_id_t type() const { return type_; }
+		format::segment_id_t type() const { return type_; }
 		virtual uint64_t address() const { return address_; }
 		virtual uint64_t size() const { return size_; }
 		virtual uint32_t physical_offset() const { return physical_offset_; }
 		virtual uint32_t physical_size() const { return physical_size_; }
 		virtual std::string name() const;
-		virtual base::memory_type_t memory_type() const { return {}; }
+		virtual base::memory_type_t memory_type() const;
 	private:
 		uint64_t address_;
 		uint64_t size_;
 		uint32_t physical_offset_;
 		uint32_t physical_size_;
-		format::segment_type_id_t type_;
-		uint32_t flags_;
+		format::segment_id_t type_;
+		format::segment_flags_t flags_;
 	};
 
 	class segment_list : public base::segment_list_t<segment>
 	{
 	public:
 		using base::segment_list_t<segment>::segment_list_t;
+		segment_list(architecture *owner, const segment_list &src);
+		std::unique_ptr<segment_list> clone(architecture *owner) const;
 		void load(architecture &file, size_t count);
-		segment *find_type(format::segment_type_id_t type) const;
+		segment *find_type(format::segment_id_t type) const;
 	};
 
-	class load_command : public base::load_command
+	class dynamic_command : public base::load_command
 	{
 	public:
 		using base::load_command::load_command;
 		void load(architecture &file);
+		void load(const string_table &table);
 		virtual uint64_t address() const { return value_; }
 		virtual uint32_t size() const { return 0; }
-		virtual size_t type() const { return type_; }
+		virtual size_t type() const { return (size_t)type_; }
 		virtual std::string name() const;
+		uint64_t value() const { return value_; }
+		std::string string() const { return string_; }
 	private:
-		uint32_t type_;
+		format::dynamic_id_t type_;
 		uint64_t value_;
+		std::string string_;
 	};
 
-	class load_command_list : public base::load_command_list
+	class dynamic_command_list : public base::load_command_list_t<dynamic_command>
 	{
 	public:
-		using base::load_command_list::load_command_list;
+		using base::load_command_list_t<dynamic_command>::load_command_list_t;
+		void load(architecture &file);
+	};
+
+	class string_table : public std::vector<char>
+	{
+	public:
+		void load(architecture &file, size_t size);
+		std::string resolve(uint32_t offset) const;
+	};
+
+	class section
+	{
+	public:
+		void load(architecture &file, const string_table &table);
+		uint64_t address() const { return address_; }
+		uint64_t size() const { return size_; }
+		uint32_t physical_offset() const { return physical_offset_; }
+		uint32_t physical_size() const { return size_; }
+		std::string name() const { return name_; }
+		format::section_id_t type() const { return type_; }
+		uint32_t entsize() const { return entsize_; }
+		uint32_t link() const { return link_; }
+	private:
+		uint64_t address_;
+		uint32_t size_;
+		uint32_t physical_offset_;
+		format::section_id_t type_;
+		uint32_t entsize_;
+		uint32_t link_;
+		std::string name_;
+	};
+
+	class section_list : public base::list<section>
+	{
+	public:
+		void load(architecture &file, size_t count, const string_table &table);
+		section *find_type(format::section_id_t type) const;
+	};
+
+	class symbol
+	{
+	public:
+		void load(architecture &file, const string_table &table);
+		std::string name() const { return name_; }
+	private:
+		std::string name_;
+	};
+
+	class symbol_list : public base::list<symbol>
+	{
+	public:
+		void load(architecture &file);
+	protected:
+		string_table table_;
+	};
+
+	class dynamic_symbol_list : public symbol_list
+	{
+	public:
+		void load(architecture &file);
+	};
+
+	class import_function : public base::import_function
+	{
+	public:
+		import_function(import *owner, uint64_t address, symbol *symbol);
+		virtual std::string name() const { return name_; }
+		virtual uint64_t address() const { return address_; }
+	private:
+		uint64_t address_;
+		std::string name_;
+		symbol *symbol_;
+	};
+
+	class import : public base::import
+	{
+	public:
+		import(import_list *owner, const std::string &name);
+		virtual std::string name() const { return name_; }
+	private:
+		std::string name_;
+	};
+
+	class import_list : public base::import_list
+	{
+	public:
+		using base::import_list::import_list;
+		template <typename... Args>
+		import &add(Args&&... params) { return base::import_list::add<import>(this, std::forward<Args>(params)...); }
+		void load(architecture &file);
+	};
+
+	class export_list : public base::export_list
+	{
+	public:
+		using base::export_list::export_list;
+	};
+
+	class reloc
+	{
+	public:
+		void load(architecture &file, bool is_rela);
+		uint64_t address() const { return address_; }
+		format::reloc_id_t type() const { return type_; }
+		symbol *symbol() const { return symbol_; }
+	private:
+		uint64_t address_;
+		format::reloc_id_t type_;
+		elf::symbol *symbol_;
+		uint64_t addend_;
+	};
+
+	class reloc_list : public base::list<reloc>
+	{
+	public:
 		void load(architecture &file);
 	};
 
@@ -426,19 +680,28 @@ namespace elf
 	public:
 		architecture(file *owner, uint64_t offset, uint64_t size);
 		base::status load();
+		dynamic_symbol_list &dynsymbols() const { return *dynamic_symbol_list_; }
 		virtual std::string name() const;
-		virtual load_command_list *commands() const { return load_command_list_.get(); }
-		virtual segment_list *segments() const { return segment_list_.get(); }
-		virtual base::import_list *imports() const { return nullptr; }
-		virtual base::symbol_list *symbols() const { return nullptr; }
-		virtual base::export_list *exports() const { return nullptr; }
 		virtual base::operand_size address_size() const { return address_size_; }
+		virtual dynamic_command_list &commands() const { return *load_command_list_; }
+		virtual segment_list &segments() const { return *segment_list_; }
+		virtual import_list &imports() const { return *import_list_; }
+		virtual base::map_symbol_list *symbols() const { return nullptr; }
+		virtual export_list &exports() const { return *export_list_; }
+		virtual section_list &sections() const { return *section_list_; }
+		virtual reloc_list &relocs() const { return *reloc_list_; }
 	private:
 		uint64_t entry_point_;
 		format::machine_id_t machine_;
 		base::operand_size address_size_;
-		std::unique_ptr<load_command_list> load_command_list_;
+		std::unique_ptr<dynamic_command_list> load_command_list_;
 		std::unique_ptr<segment_list> segment_list_;
+		std::unique_ptr<section_list> section_list_;
+		std::unique_ptr<symbol_list> symbol_list_;
+		std::unique_ptr<dynamic_symbol_list> dynamic_symbol_list_;
+		std::unique_ptr<import_list> import_list_;
+		std::unique_ptr<export_list> export_list_;
+		std::unique_ptr<reloc_list> reloc_list_;
 	};
 
 	class file : public base::file

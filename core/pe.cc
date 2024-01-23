@@ -26,7 +26,7 @@ namespace pe
 		auto &pe = add<architecture>(this, 0, size());
 		base::status status = pe.load();
 		if (status == base::status::success) {
-			auto dir = pe.commands()->find_type(format::directory_id::com_descriptor);
+			auto *dir = pe.commands().find_type(format::directory_id::com_descriptor);
 			if (dir && dir->address()) {
 				auto &net = add<net::architecture>(pe);
 				status = net.load();
@@ -40,8 +40,18 @@ namespace pe
 	directory::directory(directory_list *owner, format::directory_id type)
 		: base::load_command(owner), type_(type)
 	{
-		address_ = 0;
-		size_ = 0;
+
+	}
+
+	directory::directory(directory_list *owner, const directory &src)
+		: base::load_command(owner)
+	{
+		*this = src;
+	}
+
+	std::unique_ptr<directory> directory::clone(directory_list *owner) const
+	{
+		return std::make_unique<directory>(owner, *this);
 	}
 
 	std::string directory::name() const
@@ -75,6 +85,19 @@ namespace pe
 
 	// directory_list
 
+	directory_list::directory_list(architecture *owner, const directory_list &src)
+		: base::load_command_list_t<directory>(owner)
+	{
+		for (auto &item : src) {
+			push(item.clone(this));
+		}
+	}
+
+	std::unique_ptr<directory_list> directory_list::clone(architecture *owner) const
+	{
+		return std::make_unique<directory_list>(owner, *this);
+	}
+
 	void directory_list::load(architecture &file, size_t count)
 	{
 		for (size_t type = 0; type < count; type++) {
@@ -86,6 +109,17 @@ namespace pe
 	}
 
 	// segment
+
+	segment::segment(segment_list *owner, const segment &src)
+		: base::segment(owner)
+	{
+		*this = src;
+	}
+
+	std::unique_ptr<segment> segment::clone(segment_list *owner) const
+	{
+		return std::make_unique<segment>(owner, *this);
+	}
 
 	void segment::load(architecture &file, coff::string_table *table)
 	{
@@ -113,6 +147,19 @@ namespace pe
 	}
 
 	// segment_list
+
+	segment_list::segment_list(architecture *owner, const segment_list &src)
+		: base::segment_list_t<segment>(owner)
+	{
+		for (auto &item : src) {
+			push(item.clone(this));
+		}
+	}
+
+	std::unique_ptr<segment_list> segment_list::clone(architecture *owner) const
+	{
+		return std::make_unique<segment_list>(owner, *this);
+	}
 
 	void segment_list::load(architecture &file, size_t count, coff::string_table *table)
 	{
@@ -197,7 +244,7 @@ namespace pe
 
 	void import_list::load(architecture &file)
 	{
-		auto dir = file.commands()->find_type(format::directory_id::import);
+		auto *dir = file.commands().find_type(format::directory_id::import);
 		if (!dir)
 			return;
 
@@ -233,7 +280,7 @@ namespace pe
 
 	void export_list::load(architecture &file)
 	{
-		auto dir = file.commands()->find_type(format::directory_id::exports);
+		auto *dir = file.commands().find_type(format::directory_id::exports);
 		if (!dir)
 			return;
 
@@ -284,15 +331,27 @@ namespace pe
 		: base::architecture(owner, offset, size)
 	{
 		machine_ = format::machine_id::unknown;
-		image_base_ = 0;
-		entry_point_ = 0;
 		address_size_ = base::operand_size::dword;
 		subsystem_ = format::subsystem_id::unknown;
 		directory_list_ = std::make_unique<directory_list>(this);
 		segment_list_ = std::make_unique<pe::segment_list>(this);
 		import_list_ = std::make_unique<pe::import_list>(this);
 		export_list_ = std::make_unique<pe::export_list>();
-		symbol_list_ = std::make_unique<pe::symbol_list>();
+	}
+
+	architecture::architecture(file *owner, const architecture &src)
+		: base::architecture(owner, src)
+	{
+		machine_ = src.machine_;
+		address_size_ = src.address_size_;
+		subsystem_ = src.subsystem_;
+		directory_list_ = std::move(directory_list_->clone(this));
+		segment_list_ = std::move(segment_list_->clone(this));
+	}
+
+	std::unique_ptr<base::architecture> architecture::clone(file *owner) const
+	{
+		return std::make_unique<architecture>(owner, *this);
 	}
 
 	std::string architecture::name() const
@@ -407,7 +466,7 @@ namespace pe
 					if (symbol.section_index == 0 || symbol.section_index >= segment_list_->size())
 						continue;
 
-					symbol_list_->add(segment_list_->item(symbol.section_index - 1).address() + symbol.value, symbol.name.to_string(&string_table),
+					map_symbols().add(segment_list_->item(symbol.section_index - 1).address() + symbol.value, symbol.name.to_string(&string_table),
 						(symbol.derived_type == coff::format::derived_type_id::function) ? base::symbol_type_id::function : base::symbol_type_id::data);
 					break;
 				}

@@ -65,13 +65,13 @@ namespace net
 		: base::architecture(file.owner(), file.offset(), file.size()), file_(file)
 	{
 		meta_data_ = std::make_unique<meta_data>(this);
-		import_list_ = std::make_unique<net::import_list>(this);
-		symbol_list_ = std::make_unique<net::symbol_list>();
+		import_list_ = std::make_unique<import_list>(this);
+		export_list_ = std::make_unique<export_list>();
 	}
 
 	base::status architecture::load() 
 	{
-		auto dir = file_.commands()->find_type(pe::format::directory_id::com_descriptor);
+		auto dir = file_.commands().find_type(pe::format::directory_id::com_descriptor);
 		if (!dir || !seek_address(dir->address()))
 			return base::status::invalid_format;
 
@@ -81,7 +81,15 @@ namespace net
 
 		meta_data_->load(*this, header.meta_data.rva + image_base());
 		import_list_->load(*this);
-		symbol_list_->load(*this);
+
+		{
+			auto *table = commands().table(token_type_id::method_def);
+			for (auto &token : *table) {
+				auto &method = static_cast<method_def &>(token);
+				if (method.declaring_type())
+				map_symbols().add(method.address(), method.full_name(), base::symbol_type_id::function);
+			}
+		}
 
 		return base::status::success;
 	}
@@ -109,7 +117,7 @@ namespace net
 		std::map<token *, import *> import_map;
 		std::map<token *, import *> type_map;
 
-		auto table = file.commands()->table(token_type_id::assembly_ref);
+		auto table = file.commands().table(token_type_id::assembly_ref);
 		for (auto &token : *table) {
 			auto &ref = static_cast<assembly_ref &>(token);
 			import *item = find_name(ref.name());
@@ -118,7 +126,7 @@ namespace net
 			import_map[&token] = item;
 		}
 
-		table = file.commands()->table(token_type_id::module_ref);
+		table = file.commands().table(token_type_id::module_ref);
 		for (auto &token : *table) {
 			auto &ref = static_cast<module_ref &>(token);
 			import *item = find_name(ref.name());
@@ -127,7 +135,7 @@ namespace net
 			import_map[&token] = item;
 		}
 
-		table = file.commands()->table(token_type_id::type_ref);
+		table = file.commands().table(token_type_id::type_ref);
 		for (auto &token : *table) {
 			auto &ref = static_cast<type_ref &>(token);
 			auto it = import_map.find(ref.resolution_scope());
@@ -138,7 +146,7 @@ namespace net
 			}
 		}
 
-		table = file.commands()->table(token_type_id::type_spec);
+		table = file.commands().table(token_type_id::type_spec);
 		for (auto &token : *table) {
 			auto &ref = static_cast<type_spec&>(token);
 
@@ -164,7 +172,7 @@ namespace net
 			}
 		}
 
-		table = file.commands()->table(token_type_id::member_ref);
+		table = file.commands().table(token_type_id::member_ref);
 		for (auto &token : *table) {
 			auto &ref = static_cast<member_ref &>(token);
 			auto it = type_map.find(ref.declaring_type());
@@ -172,7 +180,7 @@ namespace net
 				it->second->add(ref.id(), ref.full_name());
 		}
 
-		table = file.commands()->table(token_type_id::impl_map);
+		table = file.commands().table(token_type_id::impl_map);
 		for (auto &token : *table) {
 			auto &ref = static_cast<impl_map &>(token);
 			auto it = import_map.find(ref.import_scope());
@@ -1541,20 +1549,6 @@ namespace net
 			for (auto &item : *this) {
 				args.push_arg(&item, is_type);
 			}
-		}
-	}
-
-	// symbol_list
-
-	void symbol_list::load(architecture &file)
-	{
-		auto table = file.commands()->table(token_type_id::method_def);
-		for (auto &token : *table) {
-			auto &method = static_cast<method_def &>(token);
-			if (!method.declaring_type())
-				continue;
-
-			add(method.address(), method.full_name(), base::symbol_type_id::function);
 		}
 	}
 }

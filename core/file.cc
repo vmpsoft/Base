@@ -54,10 +54,16 @@ namespace base
 
 	// architecture
 
-	architecture:: architecture(file *owner, uint64_t offset, uint64_t size) 
+	architecture::architecture(file *owner, uint64_t offset, uint64_t size) 
 		: owner_(owner), offset_(offset), size_(size) 
 	{
-	
+		map_symbol_list_ = std::make_unique<map_symbol_list>();
+	}
+
+	architecture::architecture(file *owner, const architecture &src)
+		: owner_(owner), offset_(src.offset()), size_(src.size())
+	{
+		map_symbol_list_ = std::move(src.map_symbol_list_->clone());
 	}
 
 	size_t architecture::read(void *buffer, size_t size) const
@@ -85,7 +91,7 @@ namespace base
 
 	bool architecture::seek_address(uint64_t address) const
 	{
-		if (auto segment = segments()->find_mapped(address)) {
+		if (auto segment = segments().find_mapped(address)) {
 			if (segment->physical_size() > address - segment->address()) {
 				seek(segment->physical_offset() + address - segment->address());
 				return true;
@@ -140,5 +146,37 @@ namespace base
 				return &item;
 		}
 		return nullptr;
+	}
+
+	// map_symbol
+
+	map_symbol::map_symbol(uint64_t address, const std::string &name, symbol_type_id type)
+		: address_(address), name_(name), type_(type)
+	{
+	
+	}
+
+	map_symbol::map_symbol(const map_symbol &src)
+	{
+		*this = src;
+	}
+
+	std::unique_ptr<map_symbol> map_symbol::clone() const
+	{
+		return std::make_unique<map_symbol>(*this);
+	}
+
+	// map_symbol_list
+
+	map_symbol_list::map_symbol_list(const map_symbol_list &src)
+	{
+		for (auto &item : src) {
+			//push(item.clone(this));
+		}
+	}
+
+	std::unique_ptr<map_symbol_list> map_symbol_list::clone() const
+	{
+		return std::make_unique<map_symbol_list>(*this);
 	}
 };

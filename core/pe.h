@@ -350,6 +350,8 @@ namespace pe
 	{
 	public:
 		directory(directory_list *owner, format::directory_id type);
+		directory(directory_list *owner, const directory &src);
+		std::unique_ptr<directory> clone(directory_list *owner) const;
 		virtual uint64_t address() const { return address_; }
 		virtual uint32_t size() const { return size_; }
 		virtual size_t type() const { return static_cast<size_t>(type_); }
@@ -361,19 +363,23 @@ namespace pe
 		uint32_t size_;
 	};
 
-	class directory_list : public base::load_command_list
+	class directory_list : public base::load_command_list_t<directory>
 	{
 	public:
-		using base::load_command_list::load_command_list;
+		using base::load_command_list_t<directory>::load_command_list_t;
+		directory_list(architecture *owner, const directory_list &src);
+		std::unique_ptr<directory_list> clone(architecture *owner) const;
+		void load(architecture &file, size_t count);
 		template <typename... Args>
 		directory &add(Args&&... params) { return base::load_command_list::add<directory>(this, std::forward<Args>(params)...); }
-		void load(architecture &file, size_t count);
 	};
 
 	class segment : public base::segment
 	{
 	public:
 		using base::segment::segment;
+		segment(segment_list *owner, const segment &src);
+		std::unique_ptr<segment> clone(segment_list *owner) const;
 		void load(architecture &file, coff::string_table *table);
 		virtual uint64_t address() const { return address_; }
 		virtual uint64_t size() const { return size_; }
@@ -394,6 +400,8 @@ namespace pe
 	{
 	public:
 		using base::segment_list_t<segment>::segment_list_t;
+		segment_list(architecture *owner, const segment_list &src);
+		std::unique_ptr<segment_list> clone(architecture *owner) const;
 		void load(architecture &file, size_t count, coff::string_table *string_table);
 	};
 
@@ -461,24 +469,21 @@ namespace pe
 		export_symbol &add(Args&&... params) { return base::export_list::add<export_symbol>(std::forward<Args>(params)...); }
 	};
 
-	class symbol_list : public base::symbol_list
-	{
-	};
-
 	class architecture : public base::architecture
 	{
 	public:
 		architecture(file *owner, uint64_t offset, uint64_t size);
+		architecture(file *owner, const architecture &src);
+		virtual std::unique_ptr<base::architecture> clone(file *owner) const;
 		virtual std::string name() const;
 		virtual base::status load();
 		virtual uint64_t image_base() const { return image_base_; }
 		virtual uint64_t entry_point() const { return entry_point_; }
 		virtual base::operand_size address_size() const { return address_size_; }
-		virtual directory_list *commands() const { return directory_list_.get(); }
-		virtual segment_list *segments() const { return segment_list_.get(); }
-		virtual import_list *imports() const { return import_list_.get(); }
-		virtual export_list *exports() const { return export_list_.get(); }
-		virtual symbol_list *symbols() const { return symbol_list_.get(); }
+		virtual directory_list &commands() const { return *directory_list_; }
+		virtual segment_list &segments() const { return *segment_list_; }
+		virtual import_list &imports() const { return *import_list_; }
+		virtual export_list &exports() const { return *export_list_; }
 	private:
 		format::machine_id machine_;
 		uint64_t image_base_;
@@ -488,7 +493,6 @@ namespace pe
 		std::unique_ptr<directory_list> directory_list_;
 		std::unique_ptr<segment_list> segment_list_;
 		std::unique_ptr<import_list> import_list_;
-		std::unique_ptr<symbol_list> symbol_list_;
 		std::unique_ptr<export_list> export_list_;
 	};
 

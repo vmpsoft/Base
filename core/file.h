@@ -70,6 +70,10 @@ namespace base
 			return res;
 		}
 
+		void push(std::unique_ptr<T> item) {
+			items_.emplace_back(std::move(item));
+		}
+
 		T &item(size_t index) const { return *items_[index]; }
 		T &first() const { return *items_.front(); }
 		T &last() const { return *items_.back(); }
@@ -165,13 +169,14 @@ namespace base
 	class segment_list;
 	class import_list;
 	class import;
-	class symbol_list;
+	class map_symbol_list;
 	class export_list;
 
 	class architecture
 	{
 	public:
 		architecture(file *owner, uint64_t offset, uint64_t size);
+		architecture(file *owner, const architecture &src);
 		uint64_t seek(uint64_t position) const;
 		bool seek_address(uint64_t address) const;
 		uint64_t tell() const;
@@ -181,18 +186,18 @@ namespace base
 		file *owner() const { return owner_; }
 		uint64_t offset() const { return offset_; }
 		uint64_t size() const { return size_; }
+		map_symbol_list &map_symbols() const { return *map_symbol_list_; }
 		virtual std::string name() const = 0;
-		virtual status load() = 0;
-		virtual load_command_list *commands() const = 0;
-		virtual segment_list *segments() const = 0;
-		virtual import_list *imports() const = 0;
-		virtual symbol_list *symbols() const = 0;
-		virtual export_list *exports() const = 0;
+		virtual load_command_list &commands() const = 0;
+		virtual segment_list &segments() const = 0;
+		virtual import_list &imports() const = 0;
+		virtual export_list &exports() const = 0;
 		virtual operand_size address_size() const = 0;
 	private:
 		file *owner_;
 		uint64_t offset_;
 		uint64_t size_;
+		std::unique_ptr<map_symbol_list> map_symbol_list_;
 	};
 
 	class file : public list<architecture>
@@ -234,6 +239,20 @@ namespace base
 		architecture *owner_;
 	};
 
+	template <typename T>
+	class load_command_list_t : public load_command_list
+	{
+	public:
+		using base::load_command_list::load_command_list;
+		using iterator = _CastIterator<list::iterator, T>;
+		using const_iterator = _CastIterator<list::const_iterator, T>;
+		iterator begin() { return list::begin(); }
+		iterator end() { return list::end(); }
+		const_iterator begin() const { return list::begin(); }
+		const_iterator end() const { return list::end(); }
+		T *find_type(size_t type) const { return static_cast<T *>(load_command_list::find_type(type)); }
+	};
+
 	union memory_type_t
 	{
 		uint16_t flags;
@@ -272,19 +291,19 @@ namespace base
 		architecture *owner_;
 	};
 
-	template <typename D>
+	template <typename T>
 	class segment_list_t : public segment_list
 	{
 	public:
 		using base::segment_list::segment_list;
-		using iterator = _CastIterator<list::iterator, D>;
-		using const_iterator = _CastIterator<list::const_iterator, D>;
+		using iterator = _CastIterator<list::iterator, T>;
+		using const_iterator = _CastIterator<list::const_iterator, T>;
 		iterator begin() { return list::begin(); }
 		iterator end() { return list::end(); }
 		const_iterator begin() const { return list::begin(); }
 		const_iterator end() const { return list::end(); }
 		template <typename... Args>
-		D &add(Args&&... params) { return base::segment_list::add<D>(this, std::forward<Args>(params)...); }
+		T &add(Args&&... params) { return base::segment_list::add<T>(this, std::forward<Args>(params)...); }
 	};
 
 	class import_function
@@ -333,10 +352,12 @@ namespace base
 		data
 	};
 
-	class symbol
+	class map_symbol
 	{
 	public:
-		symbol(uint64_t address, const std::string &name, symbol_type_id type) : address_(address), name_(name), type_(type) {}
+		map_symbol(uint64_t address, const std::string &name, symbol_type_id type);
+		map_symbol(const map_symbol &src);
+		std::unique_ptr<map_symbol> clone() const;
 		uint64_t address() const { return address_; }
 		std::string name() const { return name_; }
 		symbol_type_id type() const { return type_; }
@@ -346,8 +367,12 @@ namespace base
 		symbol_type_id type_;
 	};
 
-	class symbol_list : public list<symbol>
+	class map_symbol_list : public list<map_symbol>
 	{
+	public:
+		map_symbol_list() = default;
+		map_symbol_list(const map_symbol_list &src);
+		std::unique_ptr<map_symbol_list> clone() const;
 	};
 
 	class format

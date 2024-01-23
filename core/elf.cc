@@ -31,8 +31,14 @@ namespace elf
 	architecture::architecture(file *owner, uint64_t offset, uint64_t size)
 		: base::architecture(owner, offset, size)
 	{
-		load_command_list_ = std::make_unique<load_command_list>(this);
+		load_command_list_ = std::make_unique<dynamic_command_list>(this);
 		segment_list_ = std::make_unique<segment_list>(this);
+		section_list_ = std::make_unique<section_list>();
+		symbol_list_ = std::make_unique<symbol_list>();
+		dynamic_symbol_list_ = std::make_unique<dynamic_symbol_list>();
+		import_list_ = std::make_unique<import_list>(this);
+		export_list_ = std::make_unique<export_list>();
+		reloc_list_ = std::make_unique<reloc_list>();
 	}
 
 	std::string architecture::name() const
@@ -103,12 +109,12 @@ namespace elf
 
 		seek(0);
 
-		uint64_t phoff;
-		uint16_t phnum;
+		uint64_t phoff, shoff;
+		uint16_t phnum, shnum, shstrndx;
 		switch (ident.eclass) {
-		case format::class_type_id::x32:
+		case format::class_id_t::x32:
 			{
-				auto header = read<format::file_header_32_t>();
+				auto header = read<format::header_32_t>();
 				if (header.version != 1)
 					return base::status::invalid_format;
 
@@ -116,12 +122,15 @@ namespace elf
 				machine_ = header.machine;
 				phoff = header.phoff;
 				phnum = header.phnum;
+				shoff = header.shoff;
+				shnum = header.shnum;
+				shstrndx = header.shstrndx;
 				address_size_ = base::operand_size::dword;
 			}
 			break;
-		case format::class_type_id::x64:
+		case format::class_id_t::x64:
 			{
-				auto header = read<format::file_header_64_t>();
+				auto header = read<format::header_64_t>();
 				if (header.version != 1)
 					return base::status::invalid_format;
 
@@ -129,6 +138,9 @@ namespace elf
 				machine_ = header.machine;
 				phoff = header.phoff;
 				phnum = header.phnum;
+				shoff = header.shoff;
+				shnum = header.shnum;
+				shstrndx = header.shstrndx;
 				address_size_ = base::operand_size::qword;
 			}
 			break;
@@ -146,11 +158,52 @@ namespace elf
 		seek(phoff);
 		segment_list_->load(*this, phnum);
 		load_command_list_->load(*this);
+		dynamic_symbol_list_->load(*this);
+		reloc_list_->load(*this);
+		import_list_->load(*this);
+
+		if (shnum) {
+			string_table table;
+			if (shstrndx) {
+				uint64_t offset;
+				uint32_t size;
+				if (address_size_ == base::operand_size::dword) {
+					seek(shoff + shstrndx * sizeof(format::section_32_t));
+					auto header = read<format::section_32_t>();
+					offset = header.offset;
+					size = header.size;
+				}
+				else {
+					seek(shoff + shstrndx * sizeof(format::section_64_t));
+					auto header = read<format::section_64_t>();
+					offset = header.offset;
+					size = (uint32_t)header.size;
+				}
+				seek(offset);
+				table.load(*this, size);
+			}
+			seek(shoff);
+			section_list_->load(*this, shnum, table);
+			symbol_list_->load(*this);
+		}
 
 		return base::status::success;
 	}
 
 	// segment_list
+
+	segment_list::segment_list(architecture *owner, const segment_list &src)
+		: base::segment_list_t<segment>(owner)
+	{
+		for (auto &item : src) {
+			push(item.clone(this));
+		}
+	}
+
+	std::unique_ptr<segment_list> segment_list::clone(architecture *owner) const
+	{
+		return std::make_unique<segment_list>(owner, *this);
+	}
 
 	void segment_list::load(architecture &file, size_t count)
 	{
@@ -159,7 +212,7 @@ namespace elf
 		}
 	}
 
-	segment *segment_list::find_type(format::segment_type_id_t type) const
+	segment *segment_list::find_type(format::segment_id_t type) const
 	{
 		for (auto &item : *this) {
 			if (item.type() == type)
@@ -170,30 +223,51 @@ namespace elf
 
 	// segment
 
+	segment::segment(segment_list *owner, const segment &src)
+		: base::segment(owner)
+	{
+		*this = src;
+	}
+
+	std::unique_ptr<segment> segment::clone(segment_list *owner) const
+	{
+		return std::make_unique<segment>(owner, *this);
+	}
+
 	std::string segment::name() const
 	{
 		switch (type_) {
-		case format::segment_type_id_t::null: return "PT_NULL";
-		case format::segment_type_id_t::load: return "PT_LOAD";
-		case format::segment_type_id_t::dynamic: return "PT_DYNAMIC";
-		case format::segment_type_id_t::interp: return "PT_INTERP";
-		case format::segment_type_id_t::note: return "PT_NOTE";
-		case format::segment_type_id_t::shlib: return "PT_SHLIB";
-		case format::segment_type_id_t::phdr: return "PT_PHDR";
-		case format::segment_type_id_t::tls: return "PT_TLS";
-		case format::segment_type_id_t::gnu_eh_frame: return "PT_GNU_EH_FRAME";
-		case format::segment_type_id_t::gnu_stack: return "PT_GNU_STACK";
-		case format::segment_type_id_t::gnu_relro: return "PT_GNU_RELRO";
-		case format::segment_type_id_t::gnu_property: return "PT_GNU_PROPERTY";
-		case format::segment_type_id_t::pax_flags: return "PT_PAX_FLAGS";
+		case format::segment_id_t::null: return "PT_NULL";
+		case format::segment_id_t::load: return "PT_LOAD";
+		case format::segment_id_t::dynamic: return "PT_DYNAMIC";
+		case format::segment_id_t::interp: return "PT_INTERP";
+		case format::segment_id_t::note: return "PT_NOTE";
+		case format::segment_id_t::shlib: return "PT_SHLIB";
+		case format::segment_id_t::phdr: return "PT_PHDR";
+		case format::segment_id_t::tls: return "PT_TLS";
+		case format::segment_id_t::gnu_eh_frame: return "PT_GNU_EH_FRAME";
+		case format::segment_id_t::gnu_stack: return "PT_GNU_STACK";
+		case format::segment_id_t::gnu_relro: return "PT_GNU_RELRO";
+		case format::segment_id_t::gnu_property: return "PT_GNU_PROPERTY";
+		case format::segment_id_t::pax_flags: return "PT_PAX_FLAGS";
 		}
 		return utils::format("unknown 0x%X", type_);
+	}
+
+	base::memory_type_t segment::memory_type() const
+	{
+		base::memory_type_t res{};
+		res.read = flags_.read;
+		res.write = flags_.write;
+		res.execute = flags_.execute;
+		res.mapped = (type_ == format::segment_id_t::load);
+		return res;
 	}
 
 	void segment::load(architecture &file)
 	{
 		if (file.address_size() == base::operand_size::dword) {
-			auto header = file.read<format::segment_header_32_t>();
+			auto header = file.read<format::segment_32_t>();
 			type_ = header.type;
 			address_ = header.paddr;
 			size_ = header.memsz;
@@ -202,7 +276,7 @@ namespace elf
 			flags_ = header.flags;
 		}
 		else {
-			auto header = file.read<format::segment_header_64_t>();
+			auto header = file.read<format::segment_64_t>();
 			type_ = header.type;
 			address_ = header.paddr;
 			if (header.offset >> 32)
@@ -218,86 +292,372 @@ namespace elf
 
 	// load_command_list
 
-	void load_command_list::load(architecture &file)
+	void dynamic_command_list::load(architecture &file)
 	{
-		auto segment = file.segments()->find_type(format::segment_type_id_t::dynamic);
-		if (!segment)
-			return;
-
-		file.seek(segment->physical_offset());
-		size_t entry_size = (file.address_size() == base::operand_size::dword) ? sizeof(format::dyn_header_32_t) : sizeof(format::dyn_header_64_t);
-		for (uint64_t i = 0; i < segment->size(); i += entry_size) {
-			auto &item = add<load_command>(this);
-			item.load(file);
-			if (item.type() == format::directory_type_id_t::null) {
-				pop();
-				break;
+		if (auto *dynamic = file.segments().find_type(format::segment_id_t::dynamic)) {
+			file.seek(dynamic->physical_offset());
+			size_t entry_size = (file.address_size() == base::operand_size::dword) ? sizeof(format::dynamic_32_t) : sizeof(format::dynamic_64_t);
+			for (uint64_t i = 0; i < dynamic->size(); i += entry_size) {
+				auto &item = add<dynamic_command>(this);
+				item.load(file);
+				if (item.type() == format::dynamic_id_t::null) {
+					pop();
+					break;
+				}
 			}
 		}
 	}
 
 	// load_command
 
-	std::string load_command::name() const
+	std::string dynamic_command::name() const
 	{
 		switch (type_) {
-		case format::directory_type_id_t::null: return "DT_NULL";
-		case format::directory_type_id_t::needed: return "DT_NEEDED";
-		case format::directory_type_id_t::pltrelsz: return "DT_PLTRELSZ";
-		case format::directory_type_id_t::pltgot: return "DT_PLTGOT";
-		case format::directory_type_id_t::hash: return "DT_HASH";
-		case format::directory_type_id_t::strtab: return "DT_STRTAB";
-		case format::directory_type_id_t::symtab: return "DT_SYMTAB";
-		case format::directory_type_id_t::rela: return "DT_RELA";
-		case format::directory_type_id_t::relasz: return "DT_RELASZ";
-		case format::directory_type_id_t::relaent: return "DT_RELAENT";
-		case format::directory_type_id_t::strsz: return "DT_STRSZ";
-		case format::directory_type_id_t::syment: return "DT_SYMENT";
-		case format::directory_type_id_t::init: return "DT_INIT";
-		case format::directory_type_id_t::fini: return "DT_FINI";
-		case format::directory_type_id_t::soname: return "DT_SONAME";
-		case format::directory_type_id_t::rpath: return "DT_RPATH";
-		case format::directory_type_id_t::symbolic: return "DT_SYMBOLIC";
-		case format::directory_type_id_t::rel: return "DT_REL";
-		case format::directory_type_id_t::relsz: return "DT_RELSZ";
-		case format::directory_type_id_t::relent: return "DT_RELENT";
-		case format::directory_type_id_t::pltrel: return "DT_PLTREL";
-		case format::directory_type_id_t::debug: return "DT_DEBUG";
-		case format::directory_type_id_t::textrel: return "DT_TEXTREL";
-		case format::directory_type_id_t::jmprel: return "DT_JMPREL";
-		case format::directory_type_id_t::bind_now: return "DT_BIND_NOW";
-		case format::directory_type_id_t::init_array: return "DT_INIT_ARRAY";
-		case format::directory_type_id_t::fini_array: return "DT_FINI_ARRAY";
-		case format::directory_type_id_t::init_arraysz: return "DT_INIT_ARRAYSZ";
-		case format::directory_type_id_t::fini_arraysz: return "DT_FINI_ARRAYSZ";
-		case format::directory_type_id_t::runpath: return "DT_RUNPATH";
-		case format::directory_type_id_t::flags: return "DT_FLAGS";
-		case format::directory_type_id_t::preinit_array: return "DT_PREINIT_ARRAY";
-		case format::directory_type_id_t::preinit_arraysz: return "DT_PREINIT_ARRAYSZ";
-		case format::directory_type_id_t::gnu_hash: return "DT_GNU_HASH";
-		case format::directory_type_id_t::relacount: return "DT_RELACOUNT";
-		case format::directory_type_id_t::relcount: return "DT_RELCOUNT";
-		case format::directory_type_id_t::flags_1: return "DT_FLAGS_1";
-		case format::directory_type_id_t::versym: return "DT_VERSYM";
-		case format::directory_type_id_t::verdef: return "DT_VERDEF";
-		case format::directory_type_id_t::verdefnum: return "DT_VERDEFNUM";
-		case format::directory_type_id_t::verneed: return "DT_VERNEED";
-		case format::directory_type_id_t::verneednum: return "DT_VERNEEDNUM";
+		case format::dynamic_id_t::null: return "DT_NULL";
+		case format::dynamic_id_t::needed: return "DT_NEEDED";
+		case format::dynamic_id_t::pltrelsz: return "DT_PLTRELSZ";
+		case format::dynamic_id_t::pltgot: return "DT_PLTGOT";
+		case format::dynamic_id_t::hash: return "DT_HASH";
+		case format::dynamic_id_t::strtab: return "DT_STRTAB";
+		case format::dynamic_id_t::symtab: return "DT_SYMTAB";
+		case format::dynamic_id_t::rela: return "DT_RELA";
+		case format::dynamic_id_t::relasz: return "DT_RELASZ";
+		case format::dynamic_id_t::relaent: return "DT_RELAENT";
+		case format::dynamic_id_t::strsz: return "DT_STRSZ";
+		case format::dynamic_id_t::syment: return "DT_SYMENT";
+		case format::dynamic_id_t::init: return "DT_INIT";
+		case format::dynamic_id_t::fini: return "DT_FINI";
+		case format::dynamic_id_t::soname: return "DT_SONAME";
+		case format::dynamic_id_t::rpath: return "DT_RPATH";
+		case format::dynamic_id_t::symbolic: return "DT_SYMBOLIC";
+		case format::dynamic_id_t::rel: return "DT_REL";
+		case format::dynamic_id_t::relsz: return "DT_RELSZ";
+		case format::dynamic_id_t::relent: return "DT_RELENT";
+		case format::dynamic_id_t::pltrel: return "DT_PLTREL";
+		case format::dynamic_id_t::debug: return "DT_DEBUG";
+		case format::dynamic_id_t::textrel: return "DT_TEXTREL";
+		case format::dynamic_id_t::jmprel: return "DT_JMPREL";
+		case format::dynamic_id_t::bind_now: return "DT_BIND_NOW";
+		case format::dynamic_id_t::init_array: return "DT_INIT_ARRAY";
+		case format::dynamic_id_t::fini_array: return "DT_FINI_ARRAY";
+		case format::dynamic_id_t::init_arraysz: return "DT_INIT_ARRAYSZ";
+		case format::dynamic_id_t::fini_arraysz: return "DT_FINI_ARRAYSZ";
+		case format::dynamic_id_t::runpath: return "DT_RUNPATH";
+		case format::dynamic_id_t::flags: return "DT_FLAGS";
+		case format::dynamic_id_t::preinit_array: return "DT_PREINIT_ARRAY";
+		case format::dynamic_id_t::preinit_arraysz: return "DT_PREINIT_ARRAYSZ";
+		case format::dynamic_id_t::gnu_hash: return "DT_GNU_HASH";
+		case format::dynamic_id_t::relacount: return "DT_RELACOUNT";
+		case format::dynamic_id_t::relcount: return "DT_RELCOUNT";
+		case format::dynamic_id_t::flags_1: return "DT_FLAGS_1";
+		case format::dynamic_id_t::versym: return "DT_VERSYM";
+		case format::dynamic_id_t::verdef: return "DT_VERDEF";
+		case format::dynamic_id_t::verdefnum: return "DT_VERDEFNUM";
+		case format::dynamic_id_t::verneed: return "DT_VERNEED";
+		case format::dynamic_id_t::verneednum: return "DT_VERNEEDNUM";
 		}
 		return base::load_command::name();
 	}
 
-	void load_command::load(architecture &file)
+	void dynamic_command::load(architecture &file)
 	{
 		if (file.address_size() == base::operand_size::dword) {
-			auto header = file.read<format::dyn_header_32_t>();
+			auto header = file.read<format::dynamic_32_t>();
 			type_ = header.tag;
 			value_ = header.val;
 		}
 		else {
-			auto header = file.read<format::dyn_header_64_t>();
+			auto header = file.read<format::dynamic_64_t>();
 			type_ = header.tag;
 			value_ = header.val;
+		}
+	}
+
+	void dynamic_command::load(const string_table &table)
+	{
+		switch (type_) {
+		case format::dynamic_id_t::needed:
+		case format::dynamic_id_t::rpath:
+		case format::dynamic_id_t::runpath:
+		case format::dynamic_id_t::soname:
+			if (value_ >> 32)
+				throw std::runtime_error("Invalid format");
+			string_ = table.resolve((uint32_t)value_);
+			break;
+		}
+	}
+
+	// string_table
+
+	void string_table::load(architecture &file, size_t size)
+	{
+		resize(size);
+		file.read(data(), size);
+	}
+
+	std::string string_table::resolve(uint32_t offset) const
+	{
+		if (offset >= size())
+			throw std::runtime_error("Invalid index for string table");
+		auto begin = data() + offset;
+		auto end = data() + size();
+		for (auto it = begin; it < end; it++) {
+			if (*it == 0)
+				return { begin, (size_t)(it - begin) };
+		}
+		throw std::runtime_error("Invalid format");
+	}
+
+	// section_list
+
+	void section_list::load(architecture &file, size_t count, const string_table &table)
+	{
+		for (size_t  i = 0; i < count; i++) {
+			add<section>().load(file, table);
+		}
+	}
+
+	section *section_list::find_type(format::section_id_t type) const
+	{
+		for (auto &item : *this) {
+			if (item.type() == type)
+				return &item;
+		}
+		return nullptr;
+	}
+
+	// section
+
+	void section::load(architecture &file, const string_table &table)
+	{
+		if (file.address_size() == base::operand_size::dword) {
+			auto header = file.read<format::section_32_t>();
+			address_ = header.addr;
+			size_ = header.size;
+			physical_offset_ = header.offset;
+			name_ = table.resolve(header.name);
+			type_ = header.type;
+			entsize_ = header.entsize;
+			link_ = header.link;
+		}
+		else {
+			auto header = file.read<format::section_64_t>();
+			if (header.size >> 32)
+				throw std::runtime_error("Section size is too large");
+			if (header.offset >> 32)
+				throw std::runtime_error("Section offset is too large");
+			address_ = header.addr;
+			size_ = (uint32_t)header.size;
+			physical_offset_ = (uint32_t)header.offset;
+			name_ = table.resolve(header.name);
+			type_ = header.type;
+			entsize_ = (uint32_t)header.entsize;
+			link_ = header.link;
+		}
+	}
+
+	// symbol_list
+
+	void symbol_list::load(architecture &file)
+	{
+		if (auto *symtab = file.sections().find_type(format::section_id_t::symtab)) {
+			auto &strtab = file.sections().item(symtab->link());
+			file.seek(strtab.physical_offset());
+			table_.load(file, (uint32_t)strtab.size());
+
+			file.seek(symtab->physical_offset());
+			for (uint64_t i = 0; i < symtab->size(); i += symtab->entsize()) {
+				add().load(file, table_);
+			}
+		}
+	};
+
+	// dynamic_symbol_list
+
+	void dynamic_symbol_list::load(architecture &file)
+	{
+		if (auto *strtab = file.commands().find_type(format::dynamic_id_t::strtab)) {
+			auto *strsz = file.commands().find_type(format::dynamic_id_t::strsz);
+			if (!strsz || !file.seek_address(strtab->value()))
+				throw std::runtime_error("Invalid format");
+			table_.load(file, (uint32_t)strtab->value());
+			for (auto &item : file.commands()) {
+				item.load(table_);
+			}
+		}
+
+		if (auto *symtab = file.commands().find_type(format::dynamic_id_t::symtab)) {
+			uint64_t size = 0;
+			size_t entry_size = (file.address_size() == base::operand_size::dword) ? sizeof(format::symbol_32_t) : sizeof(format::symbol_64_t);
+			if (auto *hash = file.commands().find_type(format::dynamic_id_t::hash)) {
+				if (!file.seek_address(hash->value() + sizeof(uint32_t)))
+					throw std::runtime_error("Invalid format");
+				size = entry_size * file.read<uint32_t>();
+			}
+			else if (auto *gnu_hash = file.commands().find_type(format::dynamic_id_t::gnu_hash)) {
+				if (!file.seek_address(gnu_hash->value()))
+					throw std::runtime_error("Invalid format");
+
+				uint32_t last_sym = 0;
+				uint32_t bucket_count = file.read<uint32_t>();
+				uint32_t symbol_base = file.read<uint32_t>();
+				uint32_t maskwords = file.read<uint32_t>();
+				uint32_t shift2 = file.read<uint32_t>();
+				uint64_t bucket_pos = file.tell() + maskwords * ((file.address_size() == base::operand_size::dword) ? sizeof(uint32_t) : sizeof(uint64_t));
+				uint64_t chains_pos = bucket_pos + bucket_count * sizeof(uint32_t);
+				file.seek(bucket_pos);
+				for (size_t index = 0; index < bucket_count; index++) {
+					last_sym = std::max(last_sym, file.read<uint32_t>());
+				}
+				if (last_sym) {
+					if (last_sym < symbol_base)
+						throw std::runtime_error("Invalid format");
+
+					file.seek(chains_pos + (last_sym - symbol_base) * sizeof(uint32_t));
+					while (true) {
+						if (file.read<uint32_t>() & 1)
+							break;
+						last_sym++;
+					}
+					size = (last_sym + 1) * entry_size;
+				}
+			}
+			if (!size) {
+				auto *strtab = file.commands().find_type(format::dynamic_id_t::strtab);
+				if (!strtab)
+					throw std::runtime_error("Invalid format");
+				size = (strtab->value() - symtab->value());
+			}
+			if (!file.seek_address(symtab->value()))
+				throw std::runtime_error("Invalid format");
+
+			for (uint64_t i = 0; i < size; i += entry_size) {
+				add().load(file, table_);
+			}
+		}
+	}
+
+	// symbol
+
+	void symbol::load(architecture &file, const string_table &table)
+	{
+		if (file.address_size() == base::operand_size::dword) {
+			auto header = file.read<format::symbol_32_t>();
+			name_ = table.resolve(header.name);
+		}
+		else {
+			auto header = file.read<format::symbol_64_t>();
+		}
+	}
+
+	// import_function
+
+	import_function::import_function(import *owner, uint64_t address, symbol *symbol)
+		: base::import_function(owner), address_(address), symbol_(symbol)
+	{
+		if (symbol_)
+			name_ = symbol_->name();
+	}
+
+	// import
+
+	import::import(import_list *owner, const std::string &name)
+		: base::import(owner), name_(name)
+	{
+
+	}
+
+	// import_list
+
+	void import_list::load(architecture &file)
+	{
+		for (auto &dynamic : file.commands()) {
+			switch (dynamic.type()) {
+			case format::dynamic_id_t::needed:
+				add(dynamic.string());
+				break;
+			}
+		}
+
+		std::map<symbol *, std::vector<uint64_t>> symbol_map;
+		for (auto &reloc : file.relocs()) {
+			if (!reloc.symbol())
+				continue;
+
+			auto it = symbol_map.find(reloc.symbol());
+			if (it != symbol_map.end())
+				it->second.push_back(reloc.address());
+			else
+				symbol_map[reloc.symbol()].push_back(reloc.address());
+		}
+
+		import *empty_import = nullptr;
+		for (auto &symbol : file.dynsymbols()) {
+			if (symbol.name().empty())
+				continue;
+
+			if (!empty_import)
+				empty_import = &add("");
+
+			std::vector<uint64_t> address_list;
+			auto it = symbol_map.find(&symbol);
+			if (it != symbol_map.end())
+				address_list = it->second;
+			else
+				address_list.push_back(0);
+
+			for (auto address : address_list) {
+				empty_import->add<import_function>(empty_import, address, &symbol);
+			}
+		}
+	}
+
+	// reloc
+
+	void reloc::load(architecture &file, bool is_rela)
+	{
+		if (file.address_size() == base::operand_size::dword) {
+			auto header = file.read<format::reloc_32_t>();
+			address_ = header.offset;
+			type_ = (format::reloc_id_t)header.info;
+			symbol_ = (type_ == format::reloc_id_t::irelative) ? nullptr : &file.dynsymbols().item(header.info >> 8);
+			if (is_rela)
+				addend_ = file.read<uint32_t>();
+		}
+		else {
+			auto header = file.read<format::reloc_64_t>();
+			address_ = header.offset;
+			type_ = (format::reloc_id_t)header.type;
+			symbol_ = (type_ == format::reloc_id_t::irelative) ? nullptr : &file.dynsymbols().item(header.ssym);
+			if (is_rela)
+				addend_ = file.read<uint64_t>();
+		}
+	}
+
+	// reloc_list
+
+	void reloc_list::load(architecture &file)
+	{
+		struct dynamic_pair_t
+		{
+			format::dynamic_id_t first;
+			format::dynamic_id_t second;
+		};
+
+		const std::array<dynamic_pair_t, 3> pairs{ {
+			{ format::dynamic_id_t::rel, format::dynamic_id_t::relsz },
+			{ format::dynamic_id_t::rela, format::dynamic_id_t::relasz },
+			{ format::dynamic_id_t::jmprel, format::dynamic_id_t::pltrelsz }
+		} };
+
+		for (auto &pair : pairs) {
+			if (auto *first = file.commands().find_type(pair.first)) {
+				auto *second = file.commands().find_type(pair.second);
+				if (!second || !file.seek_address(second->value()))
+					throw std::runtime_error("Invalid format");
+
+				add<reloc>().load(file, (pair.first == format::dynamic_id_t::rela));
+			}
 		}
 	}
 }

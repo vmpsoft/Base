@@ -980,16 +980,10 @@ namespace net
 		storage data_;
 	};
 
-	class meta_data : public base::load_command_list
+	class meta_data : public base::load_command_list_t<stream>
 	{
-		using iterator = _CastIterator<list::iterator, stream>;
-		using const_iterator = _CastIterator<list::const_iterator, const stream>;
-		iterator begin() { return list::begin(); }
-		iterator end() { return list::end(); }
-		const_iterator begin() const { return list::begin(); }
-		const_iterator end() const { return list::end(); }
 	public:
-		using load_command_list::load_command_list;
+		using base::load_command_list_t<stream>::load_command_list_t;
 		template <typename T, typename... Args>
 		T &add(Args&&... params) { return base::load_command_list::add<T>(this, std::forward<Args>(params)...); }
 		void load(architecture &file, uint64_t address);
@@ -1048,10 +1042,10 @@ namespace net
 		import *find_name(const std::string &name) const { return static_cast<import *>(base::import_list::find_name(name)); }
 	};
 
-	class symbol_list : public base::symbol_list
+	class export_list : public base::export_list
 	{
 	public:
-		void load(architecture &file);
+		using base::export_list::export_list;
 	};
 
 	using segment = pe::segment;
@@ -1065,15 +1059,14 @@ namespace net
 		base::status load();
 		uint64_t image_base() const { return file_.image_base(); }
 		virtual base::operand_size address_size() const { return file_.address_size(); }
-		virtual meta_data *commands() const { return meta_data_.get(); }
-		virtual segment_list *segments() const { return file_.segments(); }
-		virtual import_list *imports() const { return import_list_.get(); }
-		virtual symbol_list *symbols() const { return symbol_list_.get(); }
-		virtual base::export_list *exports() const { return nullptr; }
+		virtual meta_data &commands() const { return *meta_data_; }
+		virtual segment_list &segments() const { return file_.segments(); }
+		virtual import_list &imports() const { return *import_list_; }
+		virtual export_list &exports() const { return *export_list_; }
 	private:
 		pe::architecture &file_;
 		std::unique_ptr<meta_data> meta_data_;
 		std::unique_ptr<import_list> import_list_;
-		std::unique_ptr<symbol_list> symbol_list_;
+		std::unique_ptr<export_list> export_list_;
 	};
 }
