@@ -143,7 +143,6 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="core\coff.cc" />
     <ClCompile Include="core\core.cc" />
     <ClCompile Include="core\elf.cc" />
     <ClCompile Include="core\file.cc" />
@@ -161,7 +160,6 @@
     <ClInclude Include="core\core.h" />
     <ClInclude Include="core\elf.h" />
     <ClInclude Include="core\file.h" />
-    <ClInclude Include="core\coff.h" />
     <ClInclude Include="core\dotnet.h" />
     <ClInclude Include="core\pe.h" />
     <ClInclude Include="core\utils.h" />

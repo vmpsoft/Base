@@ -91,7 +91,7 @@ namespace base
 
 	bool architecture::seek_address(uint64_t address) const
 	{
-		if (auto segment = segments().find_address(address, true)) {
+		if (auto *segment = segments().find_address(address, true)) {
 			if (segment->physical_size() > address - segment->address()) {
 				seek(segment->physical_offset() + address - segment->address());
 				return true;
@@ -174,7 +174,7 @@ namespace base
 	map_symbol_list::map_symbol_list(const map_symbol_list &src)
 	{
 		for (auto &item : src) {
-			//push(item.clone(this));
+			push(item.clone());
 		}
 	}
 

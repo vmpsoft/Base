@@ -31,7 +31,7 @@ namespace elf
 	architecture::architecture(file *owner, uint64_t offset, uint64_t size)
 		: base::architecture(owner, offset, size)
 	{
-		load_command_list_ = std::make_unique<dynamic_command_list>(this);
+		dynamic_command_list_ = std::make_unique<dynamic_command_list>(this);
 		segment_list_ = std::make_unique<segment_list>(this);
 		section_list_ = std::make_unique<section_list>();
 		symbol_list_ = std::make_unique<symbol_list>();
@@ -41,6 +41,7 @@ namespace elf
 		reloc_list_ = std::make_unique<reloc_list>();
 		verneed_list_ = std::make_unique<verneed_list>();
 		export_list_ = std::make_unique<export_list>();
+		resource_list_ = std::make_unique<resource_list>();
 	}
 
 	std::string architecture::name() const
@@ -159,7 +160,7 @@ namespace elf
 
 		seek(phoff);
 		segment_list_->load(*this, phnum);
-		load_command_list_->load(*this);
+		dynamic_command_list_->load(*this);
 		dynamic_symbol_list_->load(*this);
 		reloc_list_->load(*this);
 		verneed_list_->load(*this);
@@ -296,6 +297,19 @@ namespace elf
 
 	// load_command_list
 
+	dynamic_command_list::dynamic_command_list(architecture *owner, const dynamic_command_list &src)
+		: load_command_list_t<dynamic_command>(owner)
+	{
+		for (auto &item : src) {
+			push(item.clone(this));
+		}
+	}
+
+	std::unique_ptr<dynamic_command_list> dynamic_command_list::clone(architecture *owner) const
+	{
+		return std::make_unique<dynamic_command_list>(owner, *this);
+	}
+
 	void dynamic_command_list::load(architecture &file)
 	{
 		if (auto *dynamic = file.segments().find_type(format::segment_id_t::dynamic)) {
@@ -312,7 +326,18 @@ namespace elf
 		}
 	}
 
-	// load_command
+	// dynamic_command
+
+	dynamic_command::dynamic_command(dynamic_command_list *owner, const dynamic_command &src)
+		: base::load_command(owner)
+	{
+		*this = src;
+	}
+
+	std::unique_ptr<dynamic_command> dynamic_command::clone(dynamic_command_list *owner) const
+	{
+		return std::make_unique<dynamic_command>(owner, *this);
+	}
 
 	std::string dynamic_command::name() const
 	{
@@ -552,8 +577,8 @@ namespace elf
 			if (auto *versym = file.commands().find_type(format::dynamic_id_t::versym)) {
 				if (!file.seek_address(versym->value()))
 					throw std::runtime_error("Invalid format");
-				for (auto &item : *this) {
-					item.set_version(file.read<uint16_t>());
+				for (auto &symbol : *this) {
+					symbol.set_version(file.read<uint16_t>());
 				}
 			}
 		}
@@ -601,8 +626,7 @@ namespace elf
 	void import_list::load(architecture &file)
 	{
 		for (auto &dynamic : file.commands()) {
-			switch (dynamic.type()) {
-			case format::dynamic_id_t::needed:
+			if (dynamic.type() == format::dynamic_id_t::needed) {
 				add(dynamic.string());
 				break;
 			}
@@ -698,7 +722,7 @@ namespace elf
 
 	void reloc_list::load(architecture &file)
 	{
-		const std::array<std::pair<format::dynamic_id_t, format::dynamic_id_t>, 3> pairs{ {
+		constexpr std::array<std::pair<format::dynamic_id_t, format::dynamic_id_t>, 3> pairs{ {
 			{ format::dynamic_id_t::rel, format::dynamic_id_t::relsz },
 			{ format::dynamic_id_t::rela, format::dynamic_id_t::relasz },
 			{ format::dynamic_id_t::jmprel, format::dynamic_id_t::pltrelsz }

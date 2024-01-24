@@ -173,6 +173,7 @@ namespace base
 	class map_symbol_list;
 	class export_list;
 	class reloc_list;
+	class resource_list;
 
 	class architecture
 	{
@@ -197,6 +198,7 @@ namespace base
 		virtual import_list &imports() const = 0;
 		virtual export_list &exports() const = 0;
 		virtual reloc_list &relocs() const = 0;
+		virtual resource_list &resources() const = 0;
 	private:
 		file *owner_;
 		uint64_t offset_;
@@ -398,6 +400,43 @@ namespace base
 
 	template <typename T>
 	class reloc_list_t : public reloc_list
+	{
+	public:
+		using iterator = _CastIterator<list::iterator, T>;
+		using const_iterator = _CastIterator<list::const_iterator, T>;
+		iterator begin() { return list::begin(); }
+		iterator end() { return list::end(); }
+		const_iterator begin() const { return list::begin(); }
+		const_iterator end() const { return list::end(); }
+	};
+
+	class resource : public base::list<resource>
+	{
+	public:
+		virtual uint64_t address() const = 0;
+		virtual uint32_t data_size() const = 0;
+		virtual std::string name() const = 0;
+	};
+
+	class resource_list : public base::list<resource>
+	{
+
+	};
+
+	template <typename T>
+	class resource_t : public resource
+	{
+	public:
+		using iterator = _CastIterator<list::iterator, T>;
+		using const_iterator = _CastIterator<list::const_iterator, T>;
+		iterator begin() { return list::begin(); }
+		iterator end() { return list::end(); }
+		const_iterator begin() const { return list::begin(); }
+		const_iterator end() const { return list::end(); }
+	};
+
+	template <typename T>
+	class resource_list_t : public resource_list
 	{
 	public:
 		using iterator = _CastIterator<list::iterator, T>;

@@ -38,15 +38,12 @@ namespace net
 
 	uint32_t storage_view::read_encoded()
 	{
-		uint32_t res;
-		uint8_t b = read<uint8_t>();
-		if ((b & 0x80) == 0)
-			res = b & 0x7f;
-		else if ((b & 0x40) == 0)
-			res = ((b & 0x3f) << 8) | read<uint8_t>();
-		else
-			res = ((b & 0x1f) << 24) | (read<uint8_t>() << 16) | (read<uint8_t>() << 8) | read<uint8_t>();
-		return res;
+		uint8_t byte = read<uint8_t>();
+		if ((byte & 0x80) == 0)
+			return byte & 0x7f;
+		if ((byte & 0x40) == 0)
+			return ((byte & 0x3f) << 8) | read<uint8_t>();
+		return ((byte & 0x1f) << 24) | (read<uint8_t>() << 16) | (read<uint8_t>() << 8) | read<uint8_t>();
 	}
 
 	std::string storage_view::read_string()
@@ -68,6 +65,7 @@ namespace net
 		import_list_ = std::make_unique<import_list>(this);
 		export_list_ = std::make_unique<export_list>();
 		reloc_list_ = std::make_unique<reloc_list>();
+		resource_list_ = std::make_unique<resource_list>();
 	}
 
 	base::status architecture::load() 
@@ -82,6 +80,7 @@ namespace net
 
 		meta_data_->load(*this, header.meta_data.rva + image_base());
 		import_list_->load(*this);
+		resource_list_->load(*this);
 
 		if (header.vtable_fixups.rva) {
 			if (!seek_address(header.vtable_fixups.rva + image_base()))
@@ -223,6 +222,52 @@ namespace net
 		}
 	}
 
+	// resource
+
+	resource::resource(uint32_t id, uint64_t address, uint32_t size, const std::string &name)
+		: id_(id), address_(address), size_(size), name_(name)
+	{
+
+	}
+
+	// resource_list
+
+	resource *resource_list::find_id(uint32_t id) const
+	{
+		for (auto &item : *this) {
+			if (item.id() == id)
+				return &item;
+		}
+		return nullptr;
+	}
+
+	void resource_list::load(architecture &file)
+	{
+		auto *table = file.commands().table(token_type_id::manifest_resource);
+		for (auto &token : *table) {
+			auto &item = static_cast<manifest_resource &>(token);
+			if (auto *implementation = item.implementation()) {
+				auto *folder = find_id(implementation->id());
+				if (!folder) {
+					switch (implementation->type()) {
+					case token_type_id::file:
+						folder = &add<resource>(implementation->id(), 0, 0, static_cast<tfile *>(implementation)->name());
+						break;
+					case token_type_id::assembly_ref:
+						folder = &add<resource>(implementation->id(), 0, 0, static_cast<assembly_ref *>(implementation)->name());
+						break;
+					default:
+						continue;
+					}
+				}
+				folder->add<resource>(item.id(), item.offset(), 0, item.name());
+			}
+			else {
+				// TODO
+			}
+		}
+	}
+
 	// meta_data
 
 	void meta_data::load(architecture &file, uint64_t address)
@@ -322,13 +367,10 @@ namespace net
 
 	token *meta_data::find(token_value_t id) const
 	{
-		if (!id.value)
-			return nullptr;
-
 		auto table = this->table(id.type);
 		if (!table)
 			throw std::runtime_error("Invalid token");
-		return (id.value <= table->size()) ? &table->item(id.value - 1) : nullptr;
+		return (id.value >= 1 && id.value <= table->size()) ? &table->item(id.value - 1) : nullptr;
 	}
 
 	bool meta_data::field_size(const token_encoding_t &encoding) const

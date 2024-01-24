@@ -1,9 +1,14 @@
 #pragma once
 
-#include "coff.h"
-
 namespace pe
 {
+	class string_table : public std::vector<char>
+	{
+	public:
+		void load(base::architecture &file);
+		std::string resolve(size_t offset) const;
+	};
+
 #pragma pack(push, 1)
 	class format : public base::format
 	{
@@ -211,7 +216,7 @@ namespace pe
 		{
 			char		short_name[8];
 
-			std::string to_string(coff::string_table *table) const
+			std::string to_string(string_table *table) const
 			{
 				if (table && short_name[0] == '/') {
 					char *end = (char *)std::end(short_name);
@@ -334,7 +339,7 @@ namespace pe
 			uint32_t                    rva_name_ordinals;
 		};
 
-		struct reloc_header_t
+		struct reloc_directory_t
 		{
 			uint32_t        rva;
 			uint32_t        size;
@@ -353,13 +358,173 @@ namespace pe
 			dir64            = 10
 		};
 		
-		union reloc_value_t
+		struct reloc_value_t
 		{
-			uint16_t        value;
-			union {
-				uint16_t    offset : 12;
-				reloc_id_t  type : 4;
+			uint16_t    offset : 12;
+			reloc_id_t  type : 4;
+		};
+
+		struct string_t
+		{
+			union
+			{
+				char                 short_name[8];
+				struct
+				{
+					uint32_t         is_short;
+					uint32_t         long_name_offset;
+				};
 			};
+
+			std::string to_string(string_table *table) const
+			{
+				if (table && !is_short)
+					return table->resolve(long_name_offset);
+				size_t len = 0;
+				while (len < std::size(short_name) && short_name[len]) len++;
+				return { short_name, len };
+			}
+		};
+
+		enum special_section_id : uint16_t
+		{
+			symbol_undefined = 0,
+			symbol_absolute = 0xFFFF,
+			symbol_debug = 0xFFFE,
+		};
+
+		enum class storage_class_id : uint8_t
+		{
+			none = 0,
+			auto_variable = 1,
+			public_symbol = 2,
+			private_symbol = 3,
+			register_variable = 4,
+			external_definition = 5,
+			label = 6,
+			undefined_label = 7,
+			struct_member = 8,
+			function_argument = 9,
+			struct_tag = 10,
+			union_member = 11,
+			union_tag = 12,
+			type_definition = 13,
+			undefined_static = 14,
+			enum_tag = 15,
+			enum_member = 16,
+			register_parameter = 17,
+			bitfield = 18,
+			auto_argument = 19,
+			end_of_block = 20,
+			block_delimiter = 100,
+			function_delimiter = 101,
+			struct_end = 102,
+			file_name = 103,
+			line_number = 104,
+			section = 104,
+			alias_entry = 105,
+			weak_external = 105,
+			hidden_ext_symbol = 106,
+			clr_token = 107,
+			phys_end_of_function = 255,
+		};
+
+		enum class base_type_id : uint16_t
+		{
+			none = 0,
+			t_void = 1,
+			t_char = 2,
+			t_short = 3,
+			t_int = 4,
+			t_long = 5,
+			t_float = 6,
+			t_double = 7,
+			t_struct = 8,
+			t_union = 9,
+			t_enum = 10,
+			t_enum_mem = 11,
+			t_uchar = 12,
+			t_ushort = 13,
+			t_uint = 14,
+			t_ulong = 15,
+		};
+
+		enum class derived_type_id : uint16_t
+		{
+			none = 0,
+			pointer = 1,
+			function = 2,
+			c_array = 3,
+		};
+
+		struct symbol_t
+		{
+			string_t                 name;
+			int32_t                  value;
+			uint16_t                 section_index;
+			base_type_id             base_type : 4;
+			derived_type_id          derived_type : 12;
+			storage_class_id         storage_class;
+			uint8_t                  num_auxiliary;
+		};
+
+		enum class resource_id : uint16_t
+		{
+			cursor =                    1,
+			bitmap =                    2,
+			icon =                      3,
+			menu =                      4,
+			dialog =                    5,
+			string =                    6,
+			font_dir =                  7,
+			font =                      8,
+			accelerator =               9,
+			rcdata =                    10,
+			message_table =             11,
+			group_cursor =              12,
+			group_icon =                14,
+			version =                   16,
+			dlg_include =               17,
+			plug_play =                 19,
+			vxd =                       20,
+			ani_cursor =                21,
+			ani_icon =                  22,
+			html =                      23,
+			manifest =                  24,
+			dialog_init =               240,
+			toolbar =                   241,
+		};
+
+		struct rsrc_generic_t
+		{
+			union
+			{
+				struct
+				{
+					uint32_t            offset_name : 31;
+					uint32_t            is_named : 1;
+				};
+				uint16_t                identifier;
+			};
+			uint32_t                    offset : 31;
+			uint32_t                    is_directory : 1;
+		};
+
+		struct rsrc_directory_t
+		{
+			uint32_t                    characteristics;
+			uint32_t                    timedate_stamp;
+			ex_version_t                version;
+			uint16_t                    num_named_entries;
+			uint16_t                    num_id_entries;
+		};
+
+		struct rsrc_data_t
+		{
+			uint32_t                    rva_data;
+			uint32_t                    size_data;
+			uint32_t                    code_page;
+			uint32_t                    reserved;
 		};
 
 		virtual bool check(base::stream &stream) const;
@@ -408,7 +573,7 @@ namespace pe
 		using base::segment::segment;
 		segment(segment_list *owner, const segment &src);
 		std::unique_ptr<segment> clone(segment_list *owner) const;
-		void load(architecture &file, coff::string_table *table);
+		void load(architecture &file, string_table *table);
 		virtual uint64_t address() const { return address_; }
 		virtual uint64_t size() const { return size_; }
 		virtual uint32_t physical_offset() const { return physical_offset_; }
@@ -430,7 +595,7 @@ namespace pe
 		using base::segment_list_t<segment>::segment_list_t;
 		segment_list(architecture *owner, const segment_list &src);
 		std::unique_ptr<segment_list> clone(architecture *owner) const;
-		void load(architecture &file, size_t count, coff::string_table *string_table);
+		void load(architecture &file, size_t count, string_table *string_table);
 	};
 
 	class section_list : public base::section_list
@@ -519,6 +684,26 @@ namespace pe
 		void load(architecture &file);
 	};
 
+	class resource : public base::resource_t<resource>
+	{
+	public:
+		void load(architecture &file, uint64_t address, bool is_root = false);
+		virtual uint64_t address() const { return address_; }
+		virtual uint32_t data_size() const { return size_; }
+		virtual std::string name() const { return name_; }
+	private:
+		uint64_t address_;
+		uint32_t size_;
+		std::string name_;
+		format::resource_id type_;
+	};
+
+	class resource_list : public base::resource_list_t<resource>
+	{
+	public:
+		void load(architecture &file);
+	};
+
 	class architecture : public base::architecture
 	{
 	public:
@@ -536,6 +721,7 @@ namespace pe
 		virtual import_list &imports() const { return *import_list_; }
 		virtual export_list &exports() const { return *export_list_; }
 		virtual reloc_list &relocs() const { return *reloc_list_; }
+		virtual resource_list &resources() const { return *resource_list_; }
 	private:
 		format::machine_id machine_;
 		uint64_t image_base_;
@@ -548,6 +734,7 @@ namespace pe
 		std::unique_ptr<export_list> export_list_;
 		std::unique_ptr<section_list> section_list_;
 		std::unique_ptr<reloc_list> reloc_list_;
+		std::unique_ptr<resource_list> resource_list_;
 	};
 
 	class file : public base::file

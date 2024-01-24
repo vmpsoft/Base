@@ -1,4 +1,6 @@
 ﻿#include <iostream>
+#include <iomanip>
+#include <functional>
 #include "core/core.h"
 
 int main()
@@ -42,6 +44,28 @@ int main()
                 std::cout << "    Exports: (" << std::dec << architecture.exports().size() << ")\n";
                 for (auto &symbol : architecture.exports()) {
                     std::cout << "        Address: " << std::hex << symbol.address() << "  Name: " << symbol.name() << "\n";
+                }
+                std::cout << "    Resources: (" << std::dec << architecture.resources().size() << ")\n";
+
+                std::size_t indent = 0;
+                const auto print_tree = [&](const auto &self, const base::resource &resource) -> void
+                    {
+                        std::cout << std::string(indent * 2, ' ') << "    Name: " << resource.name();
+                        if (!resource.address()) {
+                            std::cout << " (" << std::dec << resource.size() << ")\n";
+                        }
+                        else {
+                            std::cout << "  Address: " << std::hex << resource.address() << "  Size: " << std::hex << resource.data_size() << "\n";
+                        }
+
+                        ++indent;
+                        for (auto &child : resource) {
+                            self(self, child);
+                        }
+                        --indent;
+                    };
+                for (auto &resource : architecture.resources()) {
+                    print_tree(print_tree, resource);
                 }
                 std::cout << "    Relocations: (" << std::dec << architecture.relocs().size() << ")\n";
                 std::cout << "    Symbols: (" << std::dec << architecture.map_symbols().size() << ")\n";

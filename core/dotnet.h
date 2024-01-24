@@ -154,6 +154,7 @@ namespace net
 			uint16_t    from_unmanaged : 1;
 			uint16_t    from_unmanaged_retain_appdomain : 1;
 			uint16_t    call_most_derived : 1;
+			uint16_t    reserved : 11;
 		};
 
 		struct vtable_fixup_t
@@ -843,6 +844,7 @@ namespace net
 	public:
 		using token::token;
 		virtual void load(architecture &file);
+		std::string name() const { return name_; }
 	private:
 		uint32_t flags_;
 		std::string name_;
@@ -867,6 +869,9 @@ namespace net
 	public:
 		using token::token;
 		virtual void load(architecture &file);
+		token *implementation() const { return implementation_; }
+		uint32_t offset() const { return offset_; }
+		std::string name() const { return name_; }
 	private:
 		uint32_t offset_;
 		uint32_t flags_;
@@ -1081,6 +1086,28 @@ namespace net
 		void load(architecture &file, size_t count);
 	};
 
+	class resource : public base::resource
+	{
+	public:
+		resource(uint32_t id, uint64_t address, uint32_t size, const std::string &name);
+		virtual uint64_t address() const { return address_; }
+		virtual uint32_t data_size() const { return size_; }
+		virtual std::string name() const { return name_; }
+		uint32_t id() const { return id_; }
+	private:
+		uint32_t id_;
+		uint64_t address_;
+		uint32_t size_;
+		std::string name_;
+	};
+
+	class resource_list : public base::resource_list_t<resource>
+	{
+	public:
+		void load(architecture &file);
+		resource *find_id(uint32_t id) const;
+	};
+
 	using segment = pe::segment;
 	using segment_list = pe::segment_list;
 	using section_list = pe::section_list;
@@ -1099,11 +1126,13 @@ namespace net
 		virtual reloc_list &relocs() const { return *reloc_list_; }
 		virtual import_list &imports() const { return *import_list_; }
 		virtual export_list &exports() const { return *export_list_; }
+		virtual resource_list &resources() const { return *resource_list_; }
 	private:
 		pe::architecture &file_;
 		std::unique_ptr<meta_data> meta_data_;
 		std::unique_ptr<import_list> import_list_;
 		std::unique_ptr<export_list> export_list_;
 		std::unique_ptr<reloc_list> reloc_list_;
+		std::unique_ptr<resource_list> resource_list_;
 	};
 }

@@ -574,6 +574,7 @@ namespace elf
 	class import;
 	class symbol;
 	class export_list;
+	class dynamic_command_list;
 
 	class segment : public base::segment
 	{
@@ -612,6 +613,8 @@ namespace elf
 	{
 	public:
 		using base::load_command::load_command;
+		dynamic_command(dynamic_command_list *owner, const dynamic_command &src);
+		std::unique_ptr<dynamic_command> clone(dynamic_command_list *owner) const;
 		void load(architecture &file);
 		void load(const string_table &table);
 		virtual uint64_t address() const { return value_; }
@@ -630,6 +633,8 @@ namespace elf
 	{
 	public:
 		using base::load_command_list_t<dynamic_command>::load_command_list_t;
+		dynamic_command_list(architecture *owner, const dynamic_command_list &src);
+		std::unique_ptr<dynamic_command_list> clone(architecture *owner) const;
 		void load(architecture &file);
 	};
 
@@ -808,6 +813,10 @@ namespace elf
 		void load(architecture &file);
 	};
 
+	class resource_list : public base::resource_list
+	{
+	};
+
 	class architecture : public base::architecture
 	{
 	public:
@@ -817,18 +826,19 @@ namespace elf
 		verneed_list &verneeds() const { return *verneed_list_; }
 		virtual std::string name() const;
 		virtual base::operand_size address_size() const { return address_size_; }
-		virtual dynamic_command_list &commands() const { return *load_command_list_; }
+		virtual dynamic_command_list &commands() const { return *dynamic_command_list_; }
 		virtual segment_list &segments() const { return *segment_list_; }
 		virtual import_list &imports() const { return *import_list_; }
 		virtual base::map_symbol_list *symbols() const { return nullptr; }
 		virtual export_list &exports() const { return *export_list_; }
 		virtual section_list &sections() const { return *section_list_; }
 		virtual reloc_list &relocs() const { return *reloc_list_; }
+		virtual resource_list &resources() const { return *resource_list_; }
 	private:
 		uint64_t entry_point_;
 		format::machine_id_t machine_;
 		base::operand_size address_size_;
-		std::unique_ptr<dynamic_command_list> load_command_list_;
+		std::unique_ptr<dynamic_command_list> dynamic_command_list_;
 		std::unique_ptr<segment_list> segment_list_;
 		std::unique_ptr<section_list> section_list_;
 		std::unique_ptr<symbol_list> symbol_list_;
@@ -837,6 +847,7 @@ namespace elf
 		std::unique_ptr<export_list> export_list_;
 		std::unique_ptr<reloc_list> reloc_list_;
 		std::unique_ptr<verneed_list> verneed_list_;
+		std::unique_ptr<resource_list> resource_list_;
 	};
 
 	class file : public base::file

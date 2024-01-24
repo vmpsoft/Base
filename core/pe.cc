@@ -1,6 +1,5 @@
 #include "file.h"
 #include "pe.h"
-#include "coff.h"
 #include "dotnet.h"
 #include "utils.h"
 
@@ -17,6 +16,30 @@ namespace pe
 	std::unique_ptr<base::file> format::instance() const
 	{
 		return std::make_unique<file>();
+	}
+
+	// string_table
+
+	void string_table::load(base::architecture &file)
+	{
+		uint32_t size = file.read<uint32_t>();
+		if (size < sizeof(uint32_t))
+			throw std::runtime_error("Invalid offset");
+		resize(size);
+		file.read(data() + sizeof(uint32_t), this->size() - sizeof(uint32_t));
+	}
+
+	std::string string_table::resolve(size_t offset) const
+	{
+		if (offset < sizeof(uint32_t))
+			throw std::runtime_error("Invalid offset");
+		auto begin = data() + offset;
+		auto end = data() + size();
+		for (auto it = begin; it < end; it++) {
+			if (*it == 0)
+				return { begin, (size_t)(it - begin) };
+		}
+		return { };
 	}
 
 	// file
@@ -121,7 +144,7 @@ namespace pe
 		return std::make_unique<segment>(owner, *this);
 	}
 
-	void segment::load(architecture &file, coff::string_table *table)
+	void segment::load(architecture &file, string_table *table)
 	{
 		auto header = file.read<format::section_header_t>();
 		address_ = header.virtual_address + file.image_base();
@@ -161,7 +184,7 @@ namespace pe
 		return std::make_unique<segment_list>(owner, *this);
 	}
 
-	void segment_list::load(architecture &file, size_t count, coff::string_table *table)
+	void segment_list::load(architecture &file, size_t count, string_table *table)
 	{
 		for (size_t index = 0; index < count; ++index) {
 			add().load(file, table);
@@ -244,17 +267,15 @@ namespace pe
 
 	void import_list::load(architecture &file)
 	{
-		auto *dir = file.commands().find_type(format::directory_id::import);
-		if (!dir)
-			return;
+		if (auto * dir = file.commands().find_type(format::directory_id::import)) {
+			if (!file.seek_address(dir->address()))
+				throw std::runtime_error("Format error");
 
-		if (!file.seek_address(dir->address()))
-			throw std::runtime_error("Format error");
-
-		while (true) {
-			if (!add().load(file)) {
-				pop();
-				return;
+			while (true) {
+				if (!add().load(file)) {
+					pop();
+					return;
+				}
 			}
 		}
 	}
@@ -280,48 +301,46 @@ namespace pe
 
 	void export_list::load(architecture &file)
 	{
-		auto *dir = file.commands().find_type(format::directory_id::exports);
-		if (!dir)
-			return;
-
-		if (!file.seek_address(dir->address()))
-			throw std::runtime_error("Format error");
-
-		auto header = file.read<format::export_directory_t>();
-		if (!header.num_functions)
-			return;
-
-		std::map<uint32_t, uint32_t> name_map;
-		if (header.num_names) {
-			if (!file.seek_address(header.rva_names + file.image_base()))
+		if (auto *dir = file.commands().find_type(format::directory_id::exports)) {
+			if (!file.seek_address(dir->address()))
 				throw std::runtime_error("Format error");
 
-			std::vector<uint32_t> rva_names;
-			rva_names.resize(header.num_names);
-			for (size_t i = 0; i < header.num_names; i++) {
-				rva_names[i] = file.read<uint32_t>();
+			auto header = file.read<format::export_directory_t>();
+			if (!header.num_functions)
+				return;
+
+			std::map<uint32_t, uint32_t> name_map;
+			if (header.num_names) {
+				if (!file.seek_address(header.rva_names + file.image_base()))
+					throw std::runtime_error("Format error");
+
+				std::vector<uint32_t> rva_names;
+				rva_names.resize(header.num_names);
+				for (size_t i = 0; i < header.num_names; i++) {
+					rva_names[i] = file.read<uint32_t>();
+				}
+
+				if (!file.seek_address(header.rva_name_ordinals + file.image_base()))
+					throw std::runtime_error("Format error");
+
+				for (size_t i = 0; i < header.num_names; i++) {
+					name_map[header.base + file.read<uint16_t>()] = rva_names[i];
+				}
 			}
 
-			if (!file.seek_address(header.rva_name_ordinals + file.image_base()))
+			if (!file.seek_address(header.rva_functions + file.image_base()))
 				throw std::runtime_error("Format error");
 
-			for (size_t i = 0; i < header.num_names; i++) {
-				name_map[header.base + file.read<uint16_t>()] = rva_names[i];
+			for (uint32_t index = 0; index < header.num_functions; index++) {
+				if (uint32_t rva = file.read<uint32_t>()) {
+					add(rva + file.image_base(), header.base + index);
+				}
 			}
-		}
 
-		if (!file.seek_address(header.rva_functions + file.image_base()))
-			throw std::runtime_error("Format error");
-
-		for (uint32_t index = 0; index < header.num_functions; index++) {
-			if (uint32_t rva = file.read<uint32_t>()) {
-				add(rva + file.image_base(), header.base + index);
+			for (auto &item : *this) {
+				auto it = name_map.find(item.ordinal());
+				item.load(file, (it != name_map.end()) ? it->second + file.image_base() : 0, (item.address() >= dir->address() && item.address() < dir->address() + dir->size()));
 			}
-		}
-
-		for (auto &item : *this) {
-			auto it = name_map.find(item.ordinal());
-			item.load(file, (it != name_map.end()) ? it->second + file.image_base() : 0, (item.address() >= dir->address() && item.address() < dir->address() + dir->size()));
 		}
 	}
 
@@ -329,27 +348,24 @@ namespace pe
 
 	void reloc_list::load(architecture &file)
 	{
-		auto *dir = file.commands().find_type(format::directory_id::basereloc);
-		if (!dir)
-			return;
+		if (auto *dir = file.commands().find_type(format::directory_id::basereloc)) {
+			if (!file.seek_address(dir->address()))
+				throw std::runtime_error("Format error");
 
-		if (!file.seek_address(dir->address()))
-			throw std::runtime_error("Format error");
+			for (uint32_t i = 0; i < dir->size();) {
+				auto header = file.read<format::reloc_directory_t>();
+				if (!header.size)
+					break;
 
-		for (uint32_t i = 0; i < dir->size();) {
-			auto header = file.read<format::reloc_header_t>();
-			if (!header.size)
-				break;
+				if (header.size < sizeof(format::reloc_directory_t) || (header.size & 1))
+					throw std::runtime_error("Invalid size of the base relocation block");
 
-			if (header.size < sizeof(format::reloc_header_t) || (header.size & 1))
-				throw std::runtime_error("Invalid size of the base relocation block");
-
-			size_t count = (header.size - sizeof(format::reloc_header_t)) / sizeof(format::reloc_value_t);
-			for (size_t block = 0; block < count; block++) {
-				auto value = file.read<format::reloc_value_t>();
-				if (value.type != format::reloc_id_t::absolute) {
+				size_t count = (header.size - sizeof(format::reloc_directory_t)) / sizeof(format::reloc_value_t);
+				for (size_t block = 0; block < count; block++) {
+					auto value = file.read<format::reloc_value_t>();
 					auto type = value.type;
-					add<reloc>(header.rva + file.image_base() + value.offset, type);
+					if (type != format::reloc_id_t::absolute)
+						add<reloc>(header.rva + file.image_base() + value.offset, type);
 				}
 			}
 		}
@@ -369,6 +385,7 @@ namespace pe
 		export_list_ = std::make_unique<export_list>();
 		section_list_ = std::make_unique<section_list>();
 		reloc_list_ = std::make_unique<reloc_list>();
+		resource_list_ = std::make_unique<resource_list>();
 	}
 
 	architecture::architecture(file *owner, const architecture &src)
@@ -477,35 +494,127 @@ namespace pe
 
 		machine_ = file_header.machine;
 
-		coff::string_table string_table;
+		string_table string_table;
 		if (file_header.ptr_symbols) {
-			seek(file_header.ptr_symbols + file_header.num_symbols * sizeof(coff::format::symbol_t));
+			seek(file_header.ptr_symbols + file_header.num_symbols * sizeof(format::symbol_t));
 			string_table.load(*this);
 		}
 		seek(dos_header.e_lfanew + sizeof(uint32_t) + sizeof(format::file_header_t) + file_header.size_optional_header);
 		segment_list_->load(*this, file_header.num_sections, &string_table);
 
-		import_list_->load(*this);
 		export_list_->load(*this);
+		import_list_->load(*this);
+		resource_list_->load(*this);
 		reloc_list_->load(*this);
 
 		if (file_header.ptr_symbols) {
 			seek(file_header.ptr_symbols);
 			for (size_t i = 0; i < file_header.num_symbols; i++) {
-				auto symbol = read<coff::format::symbol_t>();
+				auto symbol = read<format::symbol_t>();
 				switch (symbol.storage_class) {
-				case coff::format::storage_class_id::public_symbol:
-				case coff::format::storage_class_id::private_symbol:
+				case format::storage_class_id::public_symbol:
+				case format::storage_class_id::private_symbol:
 					if (symbol.section_index == 0 || symbol.section_index >= segment_list_->size())
 						continue;
 
 					map_symbols().add(segment_list_->item(symbol.section_index - 1).address() + symbol.value, symbol.name.to_string(&string_table),
-						(symbol.derived_type == coff::format::derived_type_id::function) ? base::symbol_type_id::function : base::symbol_type_id::data);
+						(symbol.derived_type == format::derived_type_id::function) ? base::symbol_type_id::function : base::symbol_type_id::data);
 					break;
 				}
 			}
 		}
 
 		return base::status::success;
+	}
+
+	// resource
+
+	void resource::load(architecture &file, uint64_t address, bool is_root)
+	{
+		auto header = file.read<format::rsrc_generic_t>();
+		auto position = file.tell();
+		if (header.is_named) {
+			if (!file.seek_address(address + header.offset_name))
+				throw std::runtime_error("Format error");
+
+			if (auto size = file.read<uint16_t>()) {
+				std::vector<char16_t> unicode_name;
+				unicode_name.resize(size);
+				file.read(unicode_name.data(), size * sizeof(unicode_name[0]));
+				name_ = utils::to_utf8(unicode_name.data(), unicode_name.size());
+			}
+		}
+		else {
+			if (is_root) {
+				type_ = (format::resource_id)header.identifier;
+				switch (type_) {
+				case format::resource_id::cursor: name_ = "Cursor"; break;
+				case format::resource_id::bitmap: name_ = "Bitmap"; break;
+				case format::resource_id::icon: name_ = "Icon"; break;
+				case format::resource_id::menu: name_ = "Menu"; break;
+				case format::resource_id::dialog: name_ = "Dialog"; break;
+				case format::resource_id::string: name_ = "String Table"; break;
+				case format::resource_id::font_dir: name_ = "Font Directory"; break;
+				case format::resource_id::font: name_ = "Font"; break;
+				case format::resource_id::accelerator: name_ = "Accelerators"; break;
+				case format::resource_id::rcdata: name_ = "RCData"; break;
+				case format::resource_id::message_table: name_ = "Message Table"; break;
+				case format::resource_id::group_cursor: name_ = "Cursor Group"; break;
+				case format::resource_id::group_icon: name_ = "Icon Group"; break;
+				case format::resource_id::version: name_ = "Version Info"; break;
+				case format::resource_id::dlg_include: name_ = "DlgInclude"; break;
+				case format::resource_id::plug_play: name_ = "Plug Play"; break;
+				case format::resource_id::vxd: name_ = "VXD"; break;
+				case format::resource_id::ani_cursor: name_ = "Animated Cursor"; break;
+				case format::resource_id::ani_icon: name_ = "Animated Icon"; break;
+				case format::resource_id::html: name_ = "HTML"; break;
+				case format::resource_id::manifest: name_ = "Manifest"; break;
+				case format::resource_id::dialog_init: name_ = "Dialog Init"; break;
+				case format::resource_id::toolbar: name_ = "Toolbar"; break;
+				default:
+					name_ = utils::format("%d", header.identifier);
+					break;
+				}
+			}
+			else {
+				name_ = utils::format("%d", header.identifier);
+			}
+		}
+
+		if (!file.seek_address(address + header.offset))
+			throw std::runtime_error("Format error");
+
+		if (header.is_directory) {
+			auto header = file.read<format::rsrc_directory_t>();
+			for (size_t i = 0; i < header.num_id_entries + header.num_named_entries; i++) {
+				add<resource>();
+			}
+			for (auto &item : *this) {
+				item.load(file, address);
+			}
+		}
+		else {
+			auto header = file.read<format::rsrc_data_t>();
+			address_ = header.rva_data + file.image_base();
+			size_ = header.size_data;
+		}
+		file.seek(position);
+	}
+
+	// resource_list
+
+	void resource_list::load(architecture &file)
+	{
+		if (auto *rsrc = file.commands().find_type(format::directory_id::resource)) {
+			if (!file.seek_address(rsrc->address()))
+				throw std::runtime_error("Format error");
+			auto header = file.read<format::rsrc_directory_t>();
+			for (size_t i = 0; i < header.num_id_entries + header.num_named_entries; i++) {
+				add<resource>();
+			}
+			for (auto &item : *this) {
+				item.load(file, rsrc->address(), true);
+			}
+		}
 	}
 };
