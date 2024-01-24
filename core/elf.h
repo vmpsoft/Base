@@ -32,7 +32,7 @@ namespace elf
 			standalone  = 255
 		};
 
-		enum class machine_id_t : uint16_t
+		enum class machine_id : uint16_t
 		{
 			none          = 0,
 			m32           = 1,
@@ -191,7 +191,7 @@ namespace elf
 		struct ident_t
 		{
 			uint32_t       signature;
-			class_id_t  eclass;
+			class_id_t     eclass;
 			uint8_t        data;
 			uint8_t        version;
 			osabi_id_t     os_abi;
@@ -212,7 +212,7 @@ namespace elf
 		{
 			ident_t        ident;
 			type_id_t      type;
-			machine_id_t   machine;
+			machine_id     machine;
 			uint32_t       version;
 			uint32_t       entry;
 			uint32_t       phoff;
@@ -230,7 +230,7 @@ namespace elf
 		{
 			ident_t        ident;
 			type_id_t      type;
-			machine_id_t   machine;
+			machine_id     machine;
 			uint32_t       version;
 			uint64_t       entry;
 			uint64_t       phoff;
@@ -299,7 +299,7 @@ namespace elf
 			uint64_t         align;
 		};
 
-		enum dynamic_id_t : uint32_t
+		enum dynamic_id : uint32_t
 		{
 			null         = 0,
 			needed       = 1,
@@ -353,7 +353,7 @@ namespace elf
 
 		struct dynamic_32_t
 		{
-			dynamic_id_t tag;
+			dynamic_id tag;
 			union
 			{
 				uint32_t val;
@@ -363,7 +363,7 @@ namespace elf
 
 		struct dynamic_64_t
 		{
-			dynamic_id_t tag;
+			dynamic_id tag;
 			uint32_t pad;
 			union
 			{
@@ -566,6 +566,10 @@ namespace elf
 		virtual std::unique_ptr<base::file> instance() const;
 	};
 
+	using operand_size = base::operand_size;
+	using dynamic_id = format::dynamic_id;
+	using machine_id = format::machine_id;
+
 	class file;
 	class architecture;
 	class segment_list;
@@ -624,7 +628,7 @@ namespace elf
 		uint64_t value() const { return value_; }
 		std::string string() const { return string_; }
 	private:
-		format::dynamic_id_t type_;
+		format::dynamic_id type_;
 		uint64_t value_;
 		std::string string_;
 	};
@@ -825,19 +829,18 @@ namespace elf
 		dynamic_symbol_list &dynsymbols() const { return *dynamic_symbol_list_; }
 		verneed_list &verneeds() const { return *verneed_list_; }
 		virtual std::string name() const;
-		virtual base::operand_size address_size() const { return address_size_; }
+		virtual operand_size address_size() const { return address_size_; }
 		virtual dynamic_command_list &commands() const { return *dynamic_command_list_; }
 		virtual segment_list &segments() const { return *segment_list_; }
 		virtual import_list &imports() const { return *import_list_; }
-		virtual base::map_symbol_list *symbols() const { return nullptr; }
 		virtual export_list &exports() const { return *export_list_; }
 		virtual section_list &sections() const { return *section_list_; }
 		virtual reloc_list &relocs() const { return *reloc_list_; }
 		virtual resource_list &resources() const { return *resource_list_; }
 	private:
 		uint64_t entry_point_;
-		format::machine_id_t machine_;
-		base::operand_size address_size_;
+		machine_id machine_;
+		operand_size address_size_;
 		std::unique_ptr<dynamic_command_list> dynamic_command_list_;
 		std::unique_ptr<segment_list> segment_list_;
 		std::unique_ptr<section_list> section_list_;

@@ -49,7 +49,7 @@ namespace pe
 		auto &pe = add<architecture>(this, 0, size());
 		base::status status = pe.load();
 		if (status == base::status::success) {
-			auto *dir = pe.commands().find_type(format::directory_id::com_descriptor);
+			auto *dir = pe.commands().find_type(directory_id::com_descriptor);
 			if (dir && dir->address()) {
 				auto &net = add<net::architecture>(pe);
 				status = net.load();
@@ -60,7 +60,7 @@ namespace pe
 
 	// directory
 
-	directory::directory(directory_list *owner, format::directory_id type)
+	directory::directory(directory_list *owner, directory_id type)
 		: base::load_command(owner), type_(type)
 	{
 
@@ -80,21 +80,21 @@ namespace pe
 	std::string directory::name() const
 	{
 		switch (type_) {
-		case format::directory_id::exports: return "Export";
-		case format::directory_id::import: return "Import";
-		case format::directory_id::resource: return "Resource";
-		case format::directory_id::exception: return "Exception";
-		case format::directory_id::security: return "Security";
-		case format::directory_id::basereloc: return "Relocation";
-		case format::directory_id::debug: return "Debug";
-		case format::directory_id::architecture: return "Architecture";
-		case format::directory_id::globalptr: return "GlobalPtr";
-		case format::directory_id::tls: return "Thread Local Storage";
-		case format::directory_id::load_config: return "Load Config";
-		case format::directory_id::bound_import: return "Bound Import";
-		case format::directory_id::iat: return "Import Address Table";
-		case format::directory_id::delay_import: return "Delay Import";
-		case format::directory_id::com_descriptor: return ".NET MetaData";
+		case directory_id::exports: return "Export";
+		case directory_id::import: return "Import";
+		case directory_id::resource: return "Resource";
+		case directory_id::exception: return "Exception";
+		case directory_id::security: return "Security";
+		case directory_id::basereloc: return "Relocation";
+		case directory_id::debug: return "Debug";
+		case directory_id::architecture: return "Architecture";
+		case directory_id::globalptr: return "GlobalPtr";
+		case directory_id::tls: return "Thread Local Storage";
+		case directory_id::load_config: return "Load Config";
+		case directory_id::bound_import: return "Bound Import";
+		case directory_id::iat: return "Import Address Table";
+		case directory_id::delay_import: return "Delay Import";
+		case directory_id::com_descriptor: return ".NET MetaData";
 		}
 		return base::load_command::name();
 	}
@@ -124,7 +124,7 @@ namespace pe
 	void directory_list::load(architecture &file, size_t count)
 	{
 		for (size_t type = 0; type < count; type++) {
-			auto &item = add(static_cast<format::directory_id>(type));
+			auto &item = add(static_cast<directory_id>(type));
 			item.load(file);
 			if (!item.address() && !item.size())
 				pop();
@@ -146,7 +146,7 @@ namespace pe
 
 	void segment::load(architecture &file, string_table *table)
 	{
-		auto header = file.read<format::section_header_t>();
+		auto header = file.read<section_header_t>();
 		address_ = header.virtual_address + file.image_base();
 		size_ = header.virtual_size;
 		physical_offset_ = header.ptr_raw_data;
@@ -155,9 +155,9 @@ namespace pe
 		name_ = header.name.to_string(table);
 	}
 
-	base::memory_type_t segment::memory_type() const
+	memory_type_t segment::memory_type() const
 	{
-		base::memory_type_t res{};
+		memory_type_t res{};
 		res.read = characteristics_.mem_read;
 		res.write = characteristics_.mem_write;
 		res.execute = characteristics_.mem_execute;
@@ -267,7 +267,7 @@ namespace pe
 
 	void import_list::load(architecture &file)
 	{
-		if (auto * dir = file.commands().find_type(format::directory_id::import)) {
+		if (auto * dir = file.commands().find_type(directory_id::import)) {
 			if (!file.seek_address(dir->address()))
 				throw std::runtime_error("Format error");
 
@@ -301,7 +301,7 @@ namespace pe
 
 	void export_list::load(architecture &file)
 	{
-		if (auto *dir = file.commands().find_type(format::directory_id::exports)) {
+		if (auto *dir = file.commands().find_type(directory_id::exports)) {
 			if (!file.seek_address(dir->address()))
 				throw std::runtime_error("Format error");
 
@@ -348,7 +348,7 @@ namespace pe
 
 	void reloc_list::load(architecture &file)
 	{
-		if (auto *dir = file.commands().find_type(format::directory_id::basereloc)) {
+		if (auto *dir = file.commands().find_type(directory_id::basereloc)) {
 			if (!file.seek_address(dir->address()))
 				throw std::runtime_error("Format error");
 
@@ -364,7 +364,7 @@ namespace pe
 				for (size_t block = 0; block < count; block++) {
 					auto value = file.read<format::reloc_value_t>();
 					auto type = value.type;
-					if (type != format::reloc_id_t::absolute)
+					if (type != reloc_id::absolute)
 						add<reloc>(header.rva + file.image_base() + value.offset, type);
 				}
 			}
@@ -376,7 +376,7 @@ namespace pe
 	architecture::architecture(file *owner, uint64_t offset, uint64_t size)
 		: base::architecture(owner, offset, size)
 	{
-		machine_ = format::machine_id::unknown;
+		machine_ = machine_id::unknown;
 		address_size_ = base::operand_size::dword;
 		subsystem_ = format::subsystem_id::unknown;
 		directory_list_ = std::make_unique<directory_list>(this);
@@ -406,34 +406,34 @@ namespace pe
 	std::string architecture::name() const
 	{
 		switch (machine_) {
-		case format::machine_id::i386: return "i386";
-		case format::machine_id::r3000:
-		case format::machine_id::r4000:
-		case format::machine_id::r10000:
-		case format::machine_id::mips16:
-		case format::machine_id::mipsfpu:
-		case format::machine_id::mipsfpu16: return "mips";
-		case format::machine_id::wcemipsv2: return "mips_wce_v2";
-		case format::machine_id::alpha: return "alpha_axp";
-		case format::machine_id::sh3: return "sh3";
-		case format::machine_id::sh3dsp: return "sh3dsp";
-		case format::machine_id::sh3e: return "sh3e";
-		case format::machine_id::sh4: return "sh4";
-		case format::machine_id::sh5: return "sh5";
-		case format::machine_id::arm: return "arm";
-		case format::machine_id::thumb: return "thumb";
-		case format::machine_id::am33: return "am33";
-		case format::machine_id::powerpc:
-		case format::machine_id::powerpcfp: return "ppc";
-		case format::machine_id::ia64: return "ia64";
-		case format::machine_id::alpha64: return "alpha64";
-		case format::machine_id::tricore: return "infineon";
-		case format::machine_id::cef: return "cef";
-		case format::machine_id::ebc: return "ebc";
-		case format::machine_id::amd64: return "amd64";
-		case format::machine_id::m32r: return "m32r";
-		case format::machine_id::cee: return "cee";
-		case format::machine_id::arm64: return "arm64";
+		case machine_id::i386: return "i386";
+		case machine_id::r3000:
+		case machine_id::r4000:
+		case machine_id::r10000:
+		case machine_id::mips16:
+		case machine_id::mipsfpu:
+		case machine_id::mipsfpu16: return "mips";
+		case machine_id::wcemipsv2: return "mips_wce_v2";
+		case machine_id::alpha: return "alpha_axp";
+		case machine_id::sh3: return "sh3";
+		case machine_id::sh3dsp: return "sh3dsp";
+		case machine_id::sh3e: return "sh3e";
+		case machine_id::sh4: return "sh4";
+		case machine_id::sh5: return "sh5";
+		case machine_id::arm: return "arm";
+		case machine_id::thumb: return "thumb";
+		case machine_id::am33: return "am33";
+		case machine_id::powerpc:
+		case machine_id::powerpcfp: return "ppc";
+		case machine_id::ia64: return "ia64";
+		case machine_id::alpha64: return "alpha64";
+		case machine_id::tricore: return "infineon";
+		case machine_id::cef: return "cef";
+		case machine_id::ebc: return "ebc";
+		case machine_id::amd64: return "amd64";
+		case machine_id::m32r: return "m32r";
+		case machine_id::cee: return "cee";
+		case machine_id::arm64: return "arm64";
 		}
 		return utils::format("unknown 0x%X", machine_);
 	}
@@ -453,7 +453,7 @@ namespace pe
 		size_t num_data_directories;
 		auto file_header = read<format::file_header_t>();
 		switch (file_header.machine) {
-		case format::machine_id::i386:
+		case machine_id::i386:
 			{
 				auto optional = read<format::optional_header_32_t>();
 				if (optional.magic != format::hdr32_magic)
@@ -465,7 +465,7 @@ namespace pe
 				num_data_directories = optional.num_data_directories;
 			}
 			break;
-		case format::machine_id::amd64:
+		case machine_id::amd64:
 			{
 				auto optional = read<format::optional_header_64_t>();
 				if (optional.magic != format::hdr64_magic)
@@ -546,31 +546,31 @@ namespace pe
 		}
 		else {
 			if (is_root) {
-				type_ = (format::resource_id)header.identifier;
+				type_ = (resource_id)header.identifier;
 				switch (type_) {
-				case format::resource_id::cursor: name_ = "Cursor"; break;
-				case format::resource_id::bitmap: name_ = "Bitmap"; break;
-				case format::resource_id::icon: name_ = "Icon"; break;
-				case format::resource_id::menu: name_ = "Menu"; break;
-				case format::resource_id::dialog: name_ = "Dialog"; break;
-				case format::resource_id::string: name_ = "String Table"; break;
-				case format::resource_id::font_dir: name_ = "Font Directory"; break;
-				case format::resource_id::font: name_ = "Font"; break;
-				case format::resource_id::accelerator: name_ = "Accelerators"; break;
-				case format::resource_id::rcdata: name_ = "RCData"; break;
-				case format::resource_id::message_table: name_ = "Message Table"; break;
-				case format::resource_id::group_cursor: name_ = "Cursor Group"; break;
-				case format::resource_id::group_icon: name_ = "Icon Group"; break;
-				case format::resource_id::version: name_ = "Version Info"; break;
-				case format::resource_id::dlg_include: name_ = "DlgInclude"; break;
-				case format::resource_id::plug_play: name_ = "Plug Play"; break;
-				case format::resource_id::vxd: name_ = "VXD"; break;
-				case format::resource_id::ani_cursor: name_ = "Animated Cursor"; break;
-				case format::resource_id::ani_icon: name_ = "Animated Icon"; break;
-				case format::resource_id::html: name_ = "HTML"; break;
-				case format::resource_id::manifest: name_ = "Manifest"; break;
-				case format::resource_id::dialog_init: name_ = "Dialog Init"; break;
-				case format::resource_id::toolbar: name_ = "Toolbar"; break;
+				case resource_id::cursor: name_ = "Cursor"; break;
+				case resource_id::bitmap: name_ = "Bitmap"; break;
+				case resource_id::icon: name_ = "Icon"; break;
+				case resource_id::menu: name_ = "Menu"; break;
+				case resource_id::dialog: name_ = "Dialog"; break;
+				case resource_id::string: name_ = "String Table"; break;
+				case resource_id::font_dir: name_ = "Font Directory"; break;
+				case resource_id::font: name_ = "Font"; break;
+				case resource_id::accelerator: name_ = "Accelerators"; break;
+				case resource_id::rcdata: name_ = "RCData"; break;
+				case resource_id::message_table: name_ = "Message Table"; break;
+				case resource_id::group_cursor: name_ = "Cursor Group"; break;
+				case resource_id::group_icon: name_ = "Icon Group"; break;
+				case resource_id::version: name_ = "Version Info"; break;
+				case resource_id::dlg_include: name_ = "DlgInclude"; break;
+				case resource_id::plug_play: name_ = "Plug Play"; break;
+				case resource_id::vxd: name_ = "VXD"; break;
+				case resource_id::ani_cursor: name_ = "Animated Cursor"; break;
+				case resource_id::ani_icon: name_ = "Animated Icon"; break;
+				case resource_id::html: name_ = "HTML"; break;
+				case resource_id::manifest: name_ = "Manifest"; break;
+				case resource_id::dialog_init: name_ = "Dialog Init"; break;
+				case resource_id::toolbar: name_ = "Toolbar"; break;
 				default:
 					name_ = utils::format("%d", header.identifier);
 					break;
@@ -605,7 +605,7 @@ namespace pe
 
 	void resource_list::load(architecture &file)
 	{
-		if (auto *rsrc = file.commands().find_type(format::directory_id::resource)) {
+		if (auto *rsrc = file.commands().find_type(directory_id::resource)) {
 			if (!file.seek_address(rsrc->address()))
 				throw std::runtime_error("Format error");
 			auto header = file.read<format::rsrc_directory_t>();

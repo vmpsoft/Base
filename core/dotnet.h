@@ -166,6 +166,8 @@ namespace net
 	};
 #pragma pack(pop)
 
+	using element_type_id = format::element_type_id;
+
 	class storage : public base::storage
 	{
 	public:
@@ -714,7 +716,7 @@ namespace net
 	public:
 		type_spec(meta_data *owner, token_value_t value);
 		std::string name() const { return signature_->name(); }
-		element *signature() const { return signature_.get(); }
+		element &signature() const { return *signature_; }
 		virtual void load(architecture &file);
 	private:
 		std::unique_ptr<element> signature_;

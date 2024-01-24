@@ -216,6 +216,7 @@ namespace base
 		uint64_t seek(uint64_t position);
 		uint64_t tell();
 		uint64_t size();
+		template <typename T> T read() { T res{}; read(&res, sizeof(res)); return res; }
 		size_t read(void *buffer, size_t size);
 		std::string file_name() const { return file_name_; }
 	private:

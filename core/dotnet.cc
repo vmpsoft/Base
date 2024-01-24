@@ -70,7 +70,7 @@ namespace net
 
 	base::status architecture::load() 
 	{
-		auto dir = file_.commands().find_type(pe::format::directory_id::com_descriptor);
+		auto dir = file_.commands().find_type(pe::directory_id::com_descriptor);
 		if (!dir || !seek_address(dir->address()))
 			return base::status::invalid_format;
 
@@ -154,16 +154,16 @@ namespace net
 
 		table = file.commands().table(token_type_id::type_spec);
 		for (auto &token : *table) {
-			auto &ref = static_cast<type_spec&>(token);
+			auto &ref = static_cast<type_spec &>(token);
 
 			net::token *type = nullptr;
-			switch (ref.signature()->type()) {
-			case format::element_type_id::genericinst:
-				type = ref.signature()->next()->token();
+			switch (ref.signature().type()) {
+			case element_type_id::genericinst:
+				type = ref.signature().next()->token();
 				break;
-			case format::element_type_id::valuetype:
-			case format::element_type_id::_class:
-				type = ref.signature()->token();
+			case element_type_id::valuetype:
+			case element_type_id::_class:
+				type = ref.signature().token();
 				break;
 			}
 
@@ -791,8 +791,8 @@ namespace net
 				{
 					type_spec *type = static_cast<type_spec *>(declaring_type_);
 					type_name = type->name();
-					if (type->signature()->type() == format::element_type_id::genericinst) {
-						type->signature()->push_args(args, true);
+					if (type->signature().type() == element_type_id::genericinst) {
+						type->signature().push_args(args, true);
 						if (type_name.substr(0, 9) == "valuetype")
 							type_name = type_name.substr(10);
 						else if (type_name.substr(0, 5) == "class")
@@ -1185,19 +1185,19 @@ namespace net
 	{
 		for (bool mod_found = true; mod_found;) {
 			size_t id = data.tell();
-			auto mod_type = data.read<format::element_type_id>();
+			auto mod_type = data.read<element_type_id>();
 			switch (mod_type) {
-			case format::element_type_id::byref:
+			case element_type_id::byref:
 				byref_ = true;
 				break;
-			case format::element_type_id::pinned:
+			case element_type_id::pinned:
 				pinned_ = true;
 				break;
-			case format::element_type_id::sentinel:
+			case element_type_id::sentinel:
 				sentinel_ = true;
 				break;
-			case format::element_type_id::cmod_reqd:
-			case format::element_type_id::cmod_opt:
+			case element_type_id::cmod_reqd:
+			case element_type_id::cmod_opt:
 				data.seek(id);
 				mod_list_.add(owner_).read_type(data);
 				break;
@@ -1213,33 +1213,33 @@ namespace net
 	void element::read_type(storage_view &data)
 	{
 		size_t pos = data.tell();
-		type_ = static_cast<format::element_type_id>(data.read_encoded());
+		type_ = static_cast<element_type_id>(data.read_encoded());
 		switch (type_) {
-		case format::element_type_id::_void:
-		case format::element_type_id::boolean:
-		case format::element_type_id::_char:
-		case format::element_type_id::i1:
-		case format::element_type_id::u1:
-		case format::element_type_id::i2:
-		case format::element_type_id::u2:
-		case format::element_type_id::i4:
-		case format::element_type_id::u4:
-		case format::element_type_id::i8:
-		case format::element_type_id::u8:
-		case format::element_type_id::r4:
-		case format::element_type_id::r8:
-		case format::element_type_id::i:
-		case format::element_type_id::u:
-		case format::element_type_id::string:
-		case format::element_type_id::object:
-		case format::element_type_id::typedbyref:
-		case format::element_type_id::sentinel:
-		case format::element_type_id::pinned:
+		case element_type_id::_void:
+		case element_type_id::boolean:
+		case element_type_id::_char:
+		case element_type_id::i1:
+		case element_type_id::u1:
+		case element_type_id::i2:
+		case element_type_id::u2:
+		case element_type_id::i4:
+		case element_type_id::u4:
+		case element_type_id::i8:
+		case element_type_id::u8:
+		case element_type_id::r4:
+		case element_type_id::r8:
+		case element_type_id::i:
+		case element_type_id::u:
+		case element_type_id::string:
+		case element_type_id::object:
+		case element_type_id::typedbyref:
+		case element_type_id::sentinel:
+		case element_type_id::pinned:
 			break;
-		case format::element_type_id::valuetype:
-		case format::element_type_id::_class:
-		case format::element_type_id::cmod_reqd:
-		case format::element_type_id::cmod_opt:
+		case element_type_id::valuetype:
+		case element_type_id::_class:
+		case element_type_id::cmod_reqd:
+		case element_type_id::cmod_opt:
 			{
 				pos = data.tell();
 				uint32_t ref_value = data.read_encoded();
@@ -1263,32 +1263,32 @@ namespace net
 					throw std::runtime_error(utils::format("Invalid token 0x%x at signature offset %d", value.id, pos));
 			}
 			break;
-		case format::element_type_id::szarray:
+		case element_type_id::szarray:
 			next_ = std::make_unique<element>(owner_);
 			next_->load(data);
 			break;
-		case format::element_type_id::ptr:
+		case element_type_id::ptr:
 			next_ = std::make_unique<element>(owner_);
 			next_->load(data);
 			break;
-		case format::element_type_id::fnptr:
+		case element_type_id::fnptr:
 			pos = data.tell();
 			method_ = std::make_unique<signature>(owner_);
 			method_->load(data);
 			if (!method_->type().is_method())
 				throw std::runtime_error(utils::format("Invalid signature type 0x%x for ELEMENT_TYPE_FNPTR at signature offset %d", method_->type(), pos));
 			break;
-		case format::element_type_id::array:
+		case element_type_id::array:
 			next_ = std::make_unique<element>(owner_);
 			next_->load(data);
 			array_shape_ = std::make_unique<array_shape>();
 			array_shape_->load(data);
 			break;
-		case format::element_type_id::mvar:
-		case format::element_type_id::var:
+		case element_type_id::mvar:
+		case element_type_id::var:
 			generic_param_ = data.read_encoded();
 			break;
-		case format::element_type_id::genericinst:
+		case element_type_id::genericinst:
 			next_ = std::make_unique<element>(owner_);
 			next_->load(data);
 			{
@@ -1309,76 +1309,76 @@ namespace net
 
 		if (sentinel_) {
 			res += "...";
-			if (type_ != format::element_type_id::end)
+			if (type_ != element_type_id::end)
 				res += ", ";
 		}
 
 		switch (type_) {
-		case format::element_type_id::end:
+		case element_type_id::end:
 			return res;
-		case format::element_type_id::_void:
+		case element_type_id::_void:
 			res += "void";
 			break;
-		case format::element_type_id::boolean:
+		case element_type_id::boolean:
 			res += "bool";
 			break;
-		case format::element_type_id::_char:
+		case element_type_id::_char:
 			res += "char";
 			break;
-		case format::element_type_id::i1:
+		case element_type_id::i1:
 			res += "int8";
 			break;
-		case format::element_type_id::u1:
+		case element_type_id::u1:
 			res += "unsigned int8";
 			break;
-		case format::element_type_id::i2:
+		case element_type_id::i2:
 			res += "int16";
 			break;
-		case format::element_type_id::u2:
+		case element_type_id::u2:
 			res += "unsigned int16";
 			break;
-		case format::element_type_id::i4:
+		case element_type_id::i4:
 			res += "int32";
 			break;
-		case format::element_type_id::u4:
+		case element_type_id::u4:
 			res += "unsigned int32";
 			break;
-		case format::element_type_id::i8:
+		case element_type_id::i8:
 			res += "int64";
 			break;
-		case format::element_type_id::u8:
+		case element_type_id::u8:
 			res += "unsigned int64";
 			break;
-		case format::element_type_id::r4:
+		case element_type_id::r4:
 			res += "float32";
 			break;
-		case format::element_type_id::r8:
+		case element_type_id::r8:
 			res += "float64";
 			break;
-		case format::element_type_id::i:
+		case element_type_id::i:
 			res += "native int";
 			break;
-		case format::element_type_id::u:
+		case element_type_id::u:
 			res += "native unsigned int";
 			break;
-		case format::element_type_id::object:
+		case element_type_id::object:
 			res += "object";
 			break;
-		case format::element_type_id::string:
+		case element_type_id::string:
 			res += "string";
 			break;
-		case format::element_type_id::szarray:
+		case element_type_id::szarray:
 			res += next_->name(args);
 			res += "[]";
 			break;
-		case format::element_type_id::ptr:
+		case element_type_id::ptr:
 			res += next_->name(args);
 			res += '*';
 			break;
-		case format::element_type_id::typedbyref:
+		case element_type_id::typedbyref:
 			res += "typedref";
 			break;
-		case format::element_type_id::fnptr:
+		case element_type_id::fnptr:
 			{
 				res += "method ";
 				switch (method_->type().type) {
@@ -1396,13 +1396,13 @@ namespace net
 				res += method_->name();
 			}
 			break;
-		case format::element_type_id::array:
+		case element_type_id::array:
 			res += next_->name(args);
 			res += array_shape_->name();
 			break;
-		case format::element_type_id::valuetype:
-		case format::element_type_id::_class:
-			res += (type_ == format::element_type_id::valuetype) ? "valuetype " : "class ";
+		case element_type_id::valuetype:
+		case element_type_id::_class:
+			res += (type_ == element_type_id::valuetype) ? "valuetype " : "class ";
 			switch (token_->type()) {
 			case token_type_id::type_ref:
 				res += static_cast<type_ref *>(token_)->full_name();
@@ -1412,7 +1412,7 @@ namespace net
 				break;
 			}
 			break;
-		case format::element_type_id::genericinst:
+		case element_type_id::genericinst:
 			res += next_->name();
 			res += '<';
 			{
@@ -1426,16 +1426,16 @@ namespace net
 			}
 			res += '>';
 			break;
-		case format::element_type_id::mvar:
-		case format::element_type_id::var:
+		case element_type_id::mvar:
+		case element_type_id::var:
 			if (element *gen_type = args ? args->resolve(*this) : nullptr)
 				res += gen_type->name();
 			else
-				res += utils::format("%s%d", (type_ == format::element_type_id::mvar) ? "!!" : "!", generic_param_);
+				res += utils::format("%s%d", (type_ == element_type_id::mvar) ? "!!" : "!", generic_param_);
 			break;
-		case format::element_type_id::cmod_reqd:
-		case format::element_type_id::cmod_opt:
-			res += (type_ == format::element_type_id::cmod_reqd) ? "modreq" : "modopt";
+		case element_type_id::cmod_reqd:
+		case element_type_id::cmod_opt:
+			res += (type_ == element_type_id::cmod_reqd) ? "modreq" : "modopt";
 			res += '(';
 			switch (token_->type()) {
 			case token_type_id::type_ref:
@@ -1465,7 +1465,7 @@ namespace net
 
 	void element::push_args(generic_arguments &args, bool is_type) const
 	{
-		if (type_ == format::element_type_id::genericinst) {
+		if (type_ == element_type_id::genericinst) {
 			for (auto &child : child_list_) {
 				args.push_arg(&child, is_type);
 			}
@@ -1499,9 +1499,9 @@ namespace net
 	element *generic_arguments::resolve(const element &type) const
 	{
 		switch (type.type()) {
-		case format::element_type_id::mvar:
+		case element_type_id::mvar:
 			return (type.number() < method_args_.size()) ? method_args_[type.number()] : nullptr;
-		case format::element_type_id::var:
+		case element_type_id::var:
 			return (type.number() < type_args_.size()) ? type_args_[type.number()] : nullptr;
 		}
 		return nullptr;

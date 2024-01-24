@@ -47,57 +47,57 @@ namespace elf
 	std::string architecture::name() const
 	{
 		switch (machine_) {
-		case format::machine_id_t::m32:
-		case format::machine_id_t::sparc32plus: return "sparc";
-		case format::machine_id_t::i386: return "i386";
-		case format::machine_id_t::m68k: return "m68k";
-		case format::machine_id_t::m88k: return "m88k";
-		case format::machine_id_t::i486: return "i486";
-		case format::machine_id_t::i860: return "i860";
-		case format::machine_id_t::mips:
-		case format::machine_id_t::mips_rs3_le: return "mips";
-		case format::machine_id_t::s370: return "s370";
-		case format::machine_id_t::parisc: return "parisc";
-		case format::machine_id_t::vpp500: return "vpp500";
-		case format::machine_id_t::i960: return "i960";
-		case format::machine_id_t::ppc: return "ppc";
-		case format::machine_id_t::ppc64: return "ppc64";
-		case format::machine_id_t::s390: return "s390";
-		case format::machine_id_t::spu: return "spu";
-		case format::machine_id_t::v800: return "v800";
-		case format::machine_id_t::fr20: return "fr20";
-		case format::machine_id_t::rh32: return "rh32";
-		case format::machine_id_t::rce: return "rce";
-		case format::machine_id_t::arm: return "arm";
-		case format::machine_id_t::alpha: return "alpha";
-		case format::machine_id_t::sh: return "sh";
-		case format::machine_id_t::sparcv9: return "sparc9";
-		case format::machine_id_t::tricore: return "tricore";
-		case format::machine_id_t::arc: return "arc";
-		case format::machine_id_t::h8_300: return "h8/300";
-		case format::machine_id_t::h8_300h: return "h8/300h";
-		case format::machine_id_t::h8s: return "h8s";
-		case format::machine_id_t::h8_500: return "h8/500";
-		case format::machine_id_t::ia_64: return "ia64";
-		case format::machine_id_t::mips_x: return "mipsx";
-		case format::machine_id_t::coldfire: return "coldfire";
-		case format::machine_id_t::m68hc12: return "68hc12";
-		case format::machine_id_t::mma: return "mma";
-		case format::machine_id_t::pcp: return "pcp";
-		case format::machine_id_t::ncpu: return "ncpu";
-		case format::machine_id_t::ndr1: return "ndr1";
-		case format::machine_id_t::starcore: return "starcore";
-		case format::machine_id_t::me16: return "me16";
-		case format::machine_id_t::st100: return "st100";
-		case format::machine_id_t::tinyj: return "tinyj";
-		case format::machine_id_t::x86_64: return "amd64";
-		case format::machine_id_t::pdsp: return "pdsp";
-		case format::machine_id_t::pdp10: return "pdp10";
-		case format::machine_id_t::pdp11: return "pdp11";
-		case format::machine_id_t::fx66: return "fx66";
-		case format::machine_id_t::st9plus: return "st9+";
-		case format::machine_id_t::st7: return "st7";
-		case format::machine_id_t::aarch64: return "arm64";
+		case machine_id::m32:
+		case machine_id::sparc32plus: return "sparc";
+		case machine_id::i386: return "i386";
+		case machine_id::m68k: return "m68k";
+		case machine_id::m88k: return "m88k";
+		case machine_id::i486: return "i486";
+		case machine_id::i860: return "i860";
+		case machine_id::mips:
+		case machine_id::mips_rs3_le: return "mips";
+		case machine_id::s370: return "s370";
+		case machine_id::parisc: return "parisc";
+		case machine_id::vpp500: return "vpp500";
+		case machine_id::i960: return "i960";
+		case machine_id::ppc: return "ppc";
+		case machine_id::ppc64: return "ppc64";
+		case machine_id::s390: return "s390";
+		case machine_id::spu: return "spu";
+		case machine_id::v800: return "v800";
+		case machine_id::fr20: return "fr20";
+		case machine_id::rh32: return "rh32";
+		case machine_id::rce: return "rce";
+		case machine_id::arm: return "arm";
+		case machine_id::alpha: return "alpha";
+		case machine_id::sh: return "sh";
+		case machine_id::sparcv9: return "sparc9";
+		case machine_id::tricore: return "tricore";
+		case machine_id::arc: return "arc";
+		case machine_id::h8_300: return "h8/300";
+		case machine_id::h8_300h: return "h8/300h";
+		case machine_id::h8s: return "h8s";
+		case machine_id::h8_500: return "h8/500";
+		case machine_id::ia_64: return "ia64";
+		case machine_id::mips_x: return "mipsx";
+		case machine_id::coldfire: return "coldfire";
+		case machine_id::m68hc12: return "68hc12";
+		case machine_id::mma: return "mma";
+		case machine_id::pcp: return "pcp";
+		case machine_id::ncpu: return "ncpu";
+		case machine_id::ndr1: return "ndr1";
+		case machine_id::starcore: return "starcore";
+		case machine_id::me16: return "me16";
+		case machine_id::st100: return "st100";
+		case machine_id::tinyj: return "tinyj";
+		case machine_id::x86_64: return "amd64";
+		case machine_id::pdsp: return "pdsp";
+		case machine_id::pdp10: return "pdp10";
+		case machine_id::pdp11: return "pdp11";
+		case machine_id::fx66: return "fx66";
+		case machine_id::st9plus: return "st9+";
+		case machine_id::st7: return "st7";
+		case machine_id::aarch64: return "arm64";
 		}
 		return utils::format("unknown 0x%x", machine_);
 	}
@@ -128,7 +128,7 @@ namespace elf
 				shoff = header.shoff;
 				shnum = header.shnum;
 				shstrndx = header.shstrndx;
-				address_size_ = base::operand_size::dword;
+				address_size_ = operand_size::dword;
 			}
 			break;
 		case format::class_id_t::x64:
@@ -144,7 +144,7 @@ namespace elf
 				shoff = header.shoff;
 				shnum = header.shnum;
 				shstrndx = header.shstrndx;
-				address_size_ = base::operand_size::qword;
+				address_size_ = operand_size::qword;
 			}
 			break;
 		}
@@ -172,7 +172,7 @@ namespace elf
 			if (shstrndx) {
 				uint64_t offset;
 				uint32_t size;
-				if (address_size_ == base::operand_size::dword) {
+				if (address_size_ == operand_size::dword) {
 					seek(shoff + shstrndx * sizeof(format::section_32_t));
 					auto header = read<format::section_32_t>();
 					offset = header.offset;
@@ -271,7 +271,7 @@ namespace elf
 
 	void segment::load(architecture &file)
 	{
-		if (file.address_size() == base::operand_size::dword) {
+		if (file.address_size() == operand_size::dword) {
 			auto header = file.read<format::segment_32_t>();
 			type_ = header.type;
 			address_ = header.paddr;
@@ -314,11 +314,11 @@ namespace elf
 	{
 		if (auto *dynamic = file.segments().find_type(format::segment_id_t::dynamic)) {
 			file.seek(dynamic->physical_offset());
-			size_t entry_size = (file.address_size() == base::operand_size::dword) ? sizeof(format::dynamic_32_t) : sizeof(format::dynamic_64_t);
+			size_t entry_size = (file.address_size() == operand_size::dword) ? sizeof(format::dynamic_32_t) : sizeof(format::dynamic_64_t);
 			for (uint64_t i = 0; i < dynamic->size(); i += entry_size) {
 				auto &item = add<dynamic_command>(this);
 				item.load(file);
-				if (item.type() == format::dynamic_id_t::null) {
+				if (item.type() == dynamic_id::null) {
 					pop();
 					break;
 				}
@@ -342,55 +342,55 @@ namespace elf
 	std::string dynamic_command::name() const
 	{
 		switch (type_) {
-		case format::dynamic_id_t::null: return "DT_NULL";
-		case format::dynamic_id_t::needed: return "DT_NEEDED";
-		case format::dynamic_id_t::pltrelsz: return "DT_PLTRELSZ";
-		case format::dynamic_id_t::pltgot: return "DT_PLTGOT";
-		case format::dynamic_id_t::hash: return "DT_HASH";
-		case format::dynamic_id_t::strtab: return "DT_STRTAB";
-		case format::dynamic_id_t::symtab: return "DT_SYMTAB";
-		case format::dynamic_id_t::rela: return "DT_RELA";
-		case format::dynamic_id_t::relasz: return "DT_RELASZ";
-		case format::dynamic_id_t::relaent: return "DT_RELAENT";
-		case format::dynamic_id_t::strsz: return "DT_STRSZ";
-		case format::dynamic_id_t::syment: return "DT_SYMENT";
-		case format::dynamic_id_t::init: return "DT_INIT";
-		case format::dynamic_id_t::fini: return "DT_FINI";
-		case format::dynamic_id_t::soname: return "DT_SONAME";
-		case format::dynamic_id_t::rpath: return "DT_RPATH";
-		case format::dynamic_id_t::symbolic: return "DT_SYMBOLIC";
-		case format::dynamic_id_t::rel: return "DT_REL";
-		case format::dynamic_id_t::relsz: return "DT_RELSZ";
-		case format::dynamic_id_t::relent: return "DT_RELENT";
-		case format::dynamic_id_t::pltrel: return "DT_PLTREL";
-		case format::dynamic_id_t::debug: return "DT_DEBUG";
-		case format::dynamic_id_t::textrel: return "DT_TEXTREL";
-		case format::dynamic_id_t::jmprel: return "DT_JMPREL";
-		case format::dynamic_id_t::bind_now: return "DT_BIND_NOW";
-		case format::dynamic_id_t::init_array: return "DT_INIT_ARRAY";
-		case format::dynamic_id_t::fini_array: return "DT_FINI_ARRAY";
-		case format::dynamic_id_t::init_arraysz: return "DT_INIT_ARRAYSZ";
-		case format::dynamic_id_t::fini_arraysz: return "DT_FINI_ARRAYSZ";
-		case format::dynamic_id_t::runpath: return "DT_RUNPATH";
-		case format::dynamic_id_t::flags: return "DT_FLAGS";
-		case format::dynamic_id_t::preinit_array: return "DT_PREINIT_ARRAY";
-		case format::dynamic_id_t::preinit_arraysz: return "DT_PREINIT_ARRAYSZ";
-		case format::dynamic_id_t::gnu_hash: return "DT_GNU_HASH";
-		case format::dynamic_id_t::relacount: return "DT_RELACOUNT";
-		case format::dynamic_id_t::relcount: return "DT_RELCOUNT";
-		case format::dynamic_id_t::flags_1: return "DT_FLAGS_1";
-		case format::dynamic_id_t::versym: return "DT_VERSYM";
-		case format::dynamic_id_t::verdef: return "DT_VERDEF";
-		case format::dynamic_id_t::verdefnum: return "DT_VERDEFNUM";
-		case format::dynamic_id_t::verneed: return "DT_VERNEED";
-		case format::dynamic_id_t::verneednum: return "DT_VERNEEDNUM";
+		case dynamic_id::null: return "DT_NULL";
+		case dynamic_id::needed: return "DT_NEEDED";
+		case dynamic_id::pltrelsz: return "DT_PLTRELSZ";
+		case dynamic_id::pltgot: return "DT_PLTGOT";
+		case dynamic_id::hash: return "DT_HASH";
+		case dynamic_id::strtab: return "DT_STRTAB";
+		case dynamic_id::symtab: return "DT_SYMTAB";
+		case dynamic_id::rela: return "DT_RELA";
+		case dynamic_id::relasz: return "DT_RELASZ";
+		case dynamic_id::relaent: return "DT_RELAENT";
+		case dynamic_id::strsz: return "DT_STRSZ";
+		case dynamic_id::syment: return "DT_SYMENT";
+		case dynamic_id::init: return "DT_INIT";
+		case dynamic_id::fini: return "DT_FINI";
+		case dynamic_id::soname: return "DT_SONAME";
+		case dynamic_id::rpath: return "DT_RPATH";
+		case dynamic_id::symbolic: return "DT_SYMBOLIC";
+		case dynamic_id::rel: return "DT_REL";
+		case dynamic_id::relsz: return "DT_RELSZ";
+		case dynamic_id::relent: return "DT_RELENT";
+		case dynamic_id::pltrel: return "DT_PLTREL";
+		case dynamic_id::debug: return "DT_DEBUG";
+		case dynamic_id::textrel: return "DT_TEXTREL";
+		case dynamic_id::jmprel: return "DT_JMPREL";
+		case dynamic_id::bind_now: return "DT_BIND_NOW";
+		case dynamic_id::init_array: return "DT_INIT_ARRAY";
+		case dynamic_id::fini_array: return "DT_FINI_ARRAY";
+		case dynamic_id::init_arraysz: return "DT_INIT_ARRAYSZ";
+		case dynamic_id::fini_arraysz: return "DT_FINI_ARRAYSZ";
+		case dynamic_id::runpath: return "DT_RUNPATH";
+		case dynamic_id::flags: return "DT_FLAGS";
+		case dynamic_id::preinit_array: return "DT_PREINIT_ARRAY";
+		case dynamic_id::preinit_arraysz: return "DT_PREINIT_ARRAYSZ";
+		case dynamic_id::gnu_hash: return "DT_GNU_HASH";
+		case dynamic_id::relacount: return "DT_RELACOUNT";
+		case dynamic_id::relcount: return "DT_RELCOUNT";
+		case dynamic_id::flags_1: return "DT_FLAGS_1";
+		case dynamic_id::versym: return "DT_VERSYM";
+		case dynamic_id::verdef: return "DT_VERDEF";
+		case dynamic_id::verdefnum: return "DT_VERDEFNUM";
+		case dynamic_id::verneed: return "DT_VERNEED";
+		case dynamic_id::verneednum: return "DT_VERNEEDNUM";
 		}
 		return base::load_command::name();
 	}
 
 	void dynamic_command::load(architecture &file)
 	{
-		if (file.address_size() == base::operand_size::dword) {
+		if (file.address_size() == operand_size::dword) {
 			auto header = file.read<format::dynamic_32_t>();
 			type_ = header.tag;
 			value_ = header.val;
@@ -405,10 +405,10 @@ namespace elf
 	void dynamic_command::load(const string_table &table)
 	{
 		switch (type_) {
-		case format::dynamic_id_t::needed:
-		case format::dynamic_id_t::rpath:
-		case format::dynamic_id_t::runpath:
-		case format::dynamic_id_t::soname:
+		case dynamic_id::needed:
+		case dynamic_id::rpath:
+		case dynamic_id::runpath:
+		case dynamic_id::soname:
 			if (value_ >> 32)
 				throw std::runtime_error("Invalid format");
 			string_ = table.resolve((uint32_t)value_);
@@ -459,7 +459,7 @@ namespace elf
 
 	void section::load(architecture &file, const string_table &table)
 	{
-		if (file.address_size() == base::operand_size::dword) {
+		if (file.address_size() == operand_size::dword) {
 			auto header = file.read<format::section_32_t>();
 			address_ = header.addr;
 			size_ = header.size;
@@ -515,8 +515,8 @@ namespace elf
 
 	void dynamic_symbol_list::load(architecture &file)
 	{
-		if (auto *strtab = file.commands().find_type(format::dynamic_id_t::strtab)) {
-			auto *strsz = file.commands().find_type(format::dynamic_id_t::strsz);
+		if (auto *strtab = file.commands().find_type(dynamic_id::strtab)) {
+			auto *strsz = file.commands().find_type(dynamic_id::strsz);
 			if (!strsz || !file.seek_address(strtab->value()))
 				throw std::runtime_error("Invalid format");
 			table_->load(file, (uint32_t)strtab->value());
@@ -525,15 +525,15 @@ namespace elf
 			}
 		}
 
-		if (auto *symtab = file.commands().find_type(format::dynamic_id_t::symtab)) {
+		if (auto *symtab = file.commands().find_type(dynamic_id::symtab)) {
 			uint64_t size = 0;
-			size_t entry_size = (file.address_size() == base::operand_size::dword) ? sizeof(format::symbol_32_t) : sizeof(format::symbol_64_t);
-			if (auto *hash = file.commands().find_type(format::dynamic_id_t::hash)) {
+			size_t entry_size = (file.address_size() == operand_size::dword) ? sizeof(format::symbol_32_t) : sizeof(format::symbol_64_t);
+			if (auto *hash = file.commands().find_type(dynamic_id::hash)) {
 				if (!file.seek_address(hash->value() + sizeof(uint32_t)))
 					throw std::runtime_error("Invalid format");
 				size = entry_size * file.read<uint32_t>();
 			}
-			else if (auto *gnu_hash = file.commands().find_type(format::dynamic_id_t::gnu_hash)) {
+			else if (auto *gnu_hash = file.commands().find_type(dynamic_id::gnu_hash)) {
 				if (!file.seek_address(gnu_hash->value()))
 					throw std::runtime_error("Invalid format");
 
@@ -542,7 +542,7 @@ namespace elf
 				uint32_t symbol_base = file.read<uint32_t>();
 				uint32_t maskwords = file.read<uint32_t>();
 				uint32_t shift2 = file.read<uint32_t>();
-				uint64_t bucket_pos = file.tell() + maskwords * ((file.address_size() == base::operand_size::dword) ? sizeof(uint32_t) : sizeof(uint64_t));
+				uint64_t bucket_pos = file.tell() + maskwords * ((file.address_size() == operand_size::dword) ? sizeof(uint32_t) : sizeof(uint64_t));
 				uint64_t chains_pos = bucket_pos + bucket_count * sizeof(uint32_t);
 				file.seek(bucket_pos);
 				for (size_t index = 0; index < bucket_count; index++) {
@@ -562,7 +562,7 @@ namespace elf
 				}
 			}
 			if (!size) {
-				auto *strtab = file.commands().find_type(format::dynamic_id_t::strtab);
+				auto *strtab = file.commands().find_type(dynamic_id::strtab);
 				if (!strtab)
 					throw std::runtime_error("Invalid format");
 				size = (strtab->value() - symtab->value());
@@ -574,7 +574,7 @@ namespace elf
 				add().load(file, *table_);
 			}
 
-			if (auto *versym = file.commands().find_type(format::dynamic_id_t::versym)) {
+			if (auto *versym = file.commands().find_type(dynamic_id::versym)) {
 				if (!file.seek_address(versym->value()))
 					throw std::runtime_error("Invalid format");
 				for (auto &symbol : *this) {
@@ -588,7 +588,7 @@ namespace elf
 
 	void symbol::load(architecture &file, const string_table &table)
 	{
-		if (file.address_size() == base::operand_size::dword) {
+		if (file.address_size() == operand_size::dword) {
 			auto header = file.read<format::symbol_32_t>();
 			name_ = table.resolve(header.name);
 			value_ = header.value;
@@ -626,7 +626,7 @@ namespace elf
 	void import_list::load(architecture &file)
 	{
 		for (auto &dynamic : file.commands()) {
-			if (dynamic.type() == format::dynamic_id_t::needed) {
+			if (dynamic.type() == dynamic_id::needed) {
 				add(dynamic.string());
 				break;
 			}
@@ -687,7 +687,7 @@ namespace elf
 
 	void reloc::load(architecture &file, bool is_rela)
 	{
-		if (file.address_size() == base::operand_size::dword) {
+		if (file.address_size() == operand_size::dword) {
 			auto header = file.read<format::reloc_32_t>();
 			address_ = header.offset;
 			type_ = (format::reloc_id_t)header.info;
@@ -722,10 +722,10 @@ namespace elf
 
 	void reloc_list::load(architecture &file)
 	{
-		constexpr std::array<std::pair<format::dynamic_id_t, format::dynamic_id_t>, 3> pairs{ {
-			{ format::dynamic_id_t::rel, format::dynamic_id_t::relsz },
-			{ format::dynamic_id_t::rela, format::dynamic_id_t::relasz },
-			{ format::dynamic_id_t::jmprel, format::dynamic_id_t::pltrelsz }
+		constexpr std::array<std::pair<dynamic_id, dynamic_id>, 3> pairs{ {
+			{ dynamic_id::rel, dynamic_id::relsz },
+			{ dynamic_id::rela, dynamic_id::relasz },
+			{ dynamic_id::jmprel, dynamic_id::pltrelsz }
 		} };
 
 		for (auto &pair : pairs) {
@@ -736,15 +736,15 @@ namespace elf
 
 				bool is_rela;
 				switch (pair.first) {
-				case format::dynamic_id_t::jmprel:
+				case dynamic_id::jmprel:
 					{
-						auto *pltrel = file.commands().find_type(format::dynamic_id_t::pltrel);
+						auto *pltrel = file.commands().find_type(dynamic_id::pltrel);
 						if (!pltrel)
 							throw std::runtime_error("Invalid format");
-						is_rela = (pltrel->value() == format::dynamic_id_t::rela);
+						is_rela = (pltrel->value() == dynamic_id::rela);
 					}
 					break;
-				case format::dynamic_id_t::rela:
+				case dynamic_id::rela:
 					is_rela = true;
 					break;
 				default:
@@ -752,9 +752,9 @@ namespace elf
 					break;
 				}
 
-				size_t entry_size = (file.address_size() == base::operand_size::dword) ? sizeof(format::reloc_32_t) : sizeof(format::reloc_64_t);
+				size_t entry_size = (file.address_size() == operand_size::dword) ? sizeof(format::reloc_32_t) : sizeof(format::reloc_64_t);
 				if (is_rela)
-					entry_size += (file.address_size() == base::operand_size::dword) ? sizeof(uint32_t) : sizeof(uint64_t);
+					entry_size += (file.address_size() == operand_size::dword) ? sizeof(uint32_t) : sizeof(uint64_t);
 
 				for (uint64_t i = 0; i < second->value(); i += entry_size) {
 					add<reloc>().load(file, is_rela);
@@ -768,7 +768,7 @@ namespace elf
 	uint64_t vernaux::load(architecture &file)
 	{
 		uint64_t next;
-		if (file.address_size() == base::operand_size::dword) {
+		if (file.address_size() == operand_size::dword) {
 			auto header = file.read<format::vernaux_32_t>();
 			hash_ = header.hash;
 			flags_ = header.flags;
@@ -795,7 +795,7 @@ namespace elf
 		size_t count;
 		uint64_t offset;
 		uint64_t next;
-		if (file.address_size() == base::operand_size::dword) {
+		if (file.address_size() == operand_size::dword) {
 			auto header = file.read<format::verneed_32_t>();
 			version_ = header.version;
 			file_ = file.dynsymbols().table().resolve(header.file);
@@ -829,8 +829,8 @@ namespace elf
 
 	void verneed_list::load(architecture &file)
 	{
-		if (auto *verneed = file.commands().find_type(format::dynamic_id_t::verneed)) {
-			auto *verneednum = file.commands().find_type(format::dynamic_id_t::verneednum);
+		if (auto *verneed = file.commands().find_type(dynamic_id::verneed)) {
+			auto *verneednum = file.commands().find_type(dynamic_id::verneednum);
 			if (!verneednum || !file.seek_address(verneed->value()))
 				throw std::runtime_error("Invalid format");
 

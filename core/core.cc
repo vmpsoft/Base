@@ -1,6 +1,7 @@
 #include "file.h"
 #include "pe.h"
 #include "elf.h"
+#include "macho.h"
 #include "core.h"
 
 namespace core
@@ -11,6 +12,7 @@ namespace core
 	{
 		formats_.add<pe::format>();
 		formats_.add<elf::format>();
+		formats_.add<macho::format>();
 	}
 
 	void core::close()

@@ -13,6 +13,9 @@ namespace pe
 	class format : public base::format
 	{
 	public:
+		virtual bool check(base::stream &stream) const;
+		virtual std::unique_ptr<base::file> instance() const;
+
 		static constexpr uint16_t dos_signature = 0x5A4D;
 		static constexpr uint32_t nt_signature = 0x00004550;
 
@@ -345,7 +348,7 @@ namespace pe
 			uint32_t        size;
 		};
 
-		enum class reloc_id_t : uint16_t
+		enum class reloc_id : uint16_t
 		{
 			absolute         = 0,
 			high             = 1,
@@ -361,7 +364,7 @@ namespace pe
 		struct reloc_value_t
 		{
 			uint16_t    offset : 12;
-			reloc_id_t  type : 4;
+			reloc_id    type : 4;
 		};
 
 		struct string_t
@@ -526,11 +529,15 @@ namespace pe
 			uint32_t                    code_page;
 			uint32_t                    reserved;
 		};
-
-		virtual bool check(base::stream &stream) const;
-		virtual std::unique_ptr<base::file> instance() const;
 	};
 #pragma pack(pop)
+
+	using memory_type_t = base::memory_type_t;
+	using directory_id = format::directory_id;
+	using section_header_t = format::section_header_t;
+	using resource_id = format::resource_id;
+	using reloc_id = format::reloc_id;
+	using machine_id = format::machine_id;
 
 	class file;
 	class architecture;
@@ -542,7 +549,7 @@ namespace pe
 	class directory : public base::load_command
 	{
 	public:
-		directory(directory_list *owner, format::directory_id type);
+		directory(directory_list *owner, directory_id type);
 		directory(directory_list *owner, const directory &src);
 		std::unique_ptr<directory> clone(directory_list *owner) const;
 		virtual uint64_t address() const { return address_; }
@@ -551,7 +558,7 @@ namespace pe
 		virtual std::string name() const;
 		void load(architecture &file);
 	private:
-		format::directory_id type_;
+		directory_id type_;
 		uint64_t address_;
 		uint32_t size_;
 	};
@@ -579,7 +586,7 @@ namespace pe
 		virtual uint32_t physical_offset() const { return physical_offset_; }
 		virtual uint32_t physical_size() const { return physical_size_; }
 		virtual std::string name() const { return name_; }
-		virtual base::memory_type_t memory_type() const;
+		virtual memory_type_t memory_type() const;
 	private:
 		uint64_t address_;
 		uint32_t size_;
@@ -671,11 +678,11 @@ namespace pe
 	{
 	public:
 		using base::reloc::reloc;
-		reloc(uint64_t address, format::reloc_id_t type) : address_(address), type_(type) {}
+		reloc(uint64_t address, reloc_id type) : address_(address), type_(type) {}
 		virtual uint64_t address() const { return address_; }
 	private:
 		uint64_t address_;
-		format::reloc_id_t type_;
+		reloc_id type_;
 	};
 
 	class reloc_list : public base::reloc_list
@@ -695,7 +702,7 @@ namespace pe
 		uint64_t address_;
 		uint32_t size_;
 		std::string name_;
-		format::resource_id type_;
+		resource_id type_;
 	};
 
 	class resource_list : public base::resource_list_t<resource>
@@ -723,7 +730,7 @@ namespace pe
 		virtual reloc_list &relocs() const { return *reloc_list_; }
 		virtual resource_list &resources() const { return *resource_list_; }
 	private:
-		format::machine_id machine_;
+		machine_id machine_;
 		uint64_t image_base_;
 		uint64_t entry_point_;
 		format::subsystem_id subsystem_;
