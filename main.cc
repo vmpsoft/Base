@@ -3,12 +3,16 @@
 #include <functional>
 #include "core/core.h"
 
-int main()
+int main(int argc, char** argv)
 {
+    if (argc < 2) {
+        std::cout << "Usage: " << argv[0] << " File\n";
+        return 0;
+    }
+
     core::core core;
 
-    std::string file_name;
-    switch (core.open(file_name)) {
+    switch (core.open(argv[1])) {
     case base::status::success:
         {
             auto &file = *core.file();
@@ -79,7 +83,7 @@ int main()
         std::cout << "Open error" << "\n";
         break;
     case base::status::invalid_format:
-        std::cout << "Invald format" << "\n";
+        std::cout << "Invalid format" << "\n";
         break;
     case base::status::unknown_format:
         std::cout << "Unknown format" << "\n";
