@@ -14,7 +14,7 @@ int main(int argc, char** argv)
 
     switch (core.open(argv[1])) {
     case base::status::success:
-        {
+    {
             auto &file = *core.file();
             std::cout << "Format: " << file.format() << "\n";
             for (auto &architecture : file) {
@@ -53,7 +53,7 @@ int main(int argc, char** argv)
 
                 std::size_t indent = 0;
                 const auto print_tree = [&](const auto &self, const base::resource &resource) -> void
-                    {
+                {
                         std::cout << std::string(indent * 2, ' ') << "    Name: " << resource.name();
                         if (!resource.address()) {
                             std::cout << " (" << std::dec << resource.size() << ")\n";
