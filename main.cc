@@ -79,7 +79,7 @@ int main()
         std::cout << "Open error" << "\n";
         break;
     case base::status::invalid_format:
-        std::cout << "Invald format" << "\n";
+        std::cout << "Invalid format" << "\n";
         break;
     case base::status::unknown_format:
         std::cout << "Unknown format" << "\n";
